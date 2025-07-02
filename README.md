@@ -6,6 +6,18 @@ Lonelybot
 - Lonelybot is a library crate with #no_std support, and can be use in webassembly
 - Lonecli is a binary wrapper crate on lonelybot to provide the features through CLI
 
+## Features
+
+- **Partial information support** via the `partial` module. Hidden cards are represented as `Option<Card>` and can be filled randomly with `fill_unknowns_randomly`.
+- **Bayesian inference** using `column_probabilities` to estimate hidden cards.
+- **Strategic play styles** through the `PlayStyle` enum (`Conservative`, `Neutral`, `Aggressive`).
+- **Expert heuristics** configurable with `HeuristicConfig` and used in `ranked_moves` and Monte Carlo search.
+- **Ranked move output** with heuristic and simulation scores plus blocking status.
+- **State analysis** via `analyze_state` giving unknown count, remaining cards, mobility and deadlock risk.
+- **MCTS based solver** available through `best_move_mcts`.
+- **Partial JSON loading** where `"unknown"` or `-1` values denote hidden cards.
+- **Python bindings** exposing the above features for scripting.
+
 You'd probably want to use `lonecli`. To run it with `cargo`,
 
 ```sh
@@ -20,6 +32,21 @@ cargo run --release -- help
 - release-with-debug: Release + debug info (cargo build --profile=release-with-debug)
 - debug: default rust debug (cargo build)
 - bench: For micro-benchmarking (cargo bench)
+
+## Python bindings
+
+The directory `python/lonelybot_py` contains PyO3 bindings exposing the solver
+to Python. Install [maturin](https://github.com/PyO3/maturin) and run:
+
+```sh
+cd python/lonelybot_py
+maturin develop
+```
+
+This installs a `lonelybot_py` module providing `GameState`, `Move`,
+`ranked_moves`, `best_move`, `best_move_mcts`, `column_probabilities` and
+`analyze_state`.  The helper `python/utils.py` includes a `parse_hidden()`
+function for loading JSON states with `"unknown"` or `-1` values.
 
 ## Seed
 There are 7 seed types
