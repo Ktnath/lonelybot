@@ -18,4 +18,7 @@ pub mod state;
 pub mod tracking;
 pub mod traverse;
 pub mod dependencies;
+pub mod partial;
+pub mod analysis;
+pub mod game_theory;
 mod utils;
