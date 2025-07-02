@@ -1,6 +1,6 @@
 """Lonelybot interactive CLI"""
 import json
-from lonelybot_py import GameState, ranked_moves_py
+from lonelybot_py import GameState, ranked_moves_py, column_probabilities_py
 from utils import parse_hidden
 
 
@@ -16,7 +16,11 @@ def main():
                 print(moves[0])
             continue
         if cmd == "prob":
-            print("probability feature not implemented in python stub")
+            cols = column_probabilities_py(game)
+            for i, col in enumerate(cols, 1):
+                print(f"Column {i}:")
+                for card, prob in col:
+                    print(f"  {card}: {prob:.2%}")
             continue
         if cmd.startswith("custom"):
             _, path = cmd.split(maxsplit=1)
