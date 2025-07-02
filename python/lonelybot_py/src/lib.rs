@@ -1,13 +1,80 @@
-use lonelybot::analysis::{ranked_moves, HeuristicConfig, PlayStyle};
+use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
+
+use lonelybot::analysis::{ranked_moves, analyze_state, HeuristicConfig, PlayStyle, StateAnalysis};
+use lonelybot::game_theory::best_move_mcts;
+use lonelybot::partial::{PartialState, PartialColumn};
 use lonelybot::engine::SolitaireEngine;
 use lonelybot::pruning::FullPruner;
 use lonelybot::standard::StandardSolitaire;
-use pyo3::prelude::*;
+use lonelybot::card::{Card, N_SUITS, N_RANKS};
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use serde_json::Value;
 
 #[pyclass]
 #[derive(Clone)]
-struct GameState {
-    inner: StandardSolitaire,
+pub struct MovePy {
+    mv: lonelybot::moves::Move,
+}
+
+#[pymethods]
+impl MovePy {
+    fn __repr__(&self) -> String {
+        self.mv.to_string()
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
+pub struct GameState {
+    state: PartialState,
+}
+
+fn parse_card(s: &str) -> PyResult<Card> {
+    const RANKS: [&str; N_RANKS as usize] = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+    const SUITS: [&str; N_SUITS as usize] = ["H","D","C","S"];
+    let s = s.trim();
+    if s.len() < 2 { return Err(PyValueError::new_err("invalid card")); }
+    let (rank_str, suit_str) = s.split_at(s.len()-1);
+    let rank = RANKS.iter().position(|&r| r.eq_ignore_ascii_case(rank_str))
+        .ok_or_else(|| PyValueError::new_err("invalid rank"))? as u8;
+    let suit = SUITS.iter().position(|&r| r.eq_ignore_ascii_case(suit_str))
+        .ok_or_else(|| PyValueError::new_err("invalid suit"))? as u8;
+    Ok(Card::new(rank, suit))
+}
+
+fn parse_json_state(txt: &str) -> PyResult<PartialState> {
+    let v: Value = serde_json::from_str(txt).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let draw_step = v.get("draw_step").and_then(|x| x.as_u64()).unwrap_or(1) as u8;
+    let mut columns: [PartialColumn;7] = core::array::from_fn(|_| PartialColumn { hidden: Vec::new(), visible: lonelybot::standard::PileVec::new() });
+    if let Some(cols) = v.get("columns").and_then(|c| c.as_array()) {
+        for (i,col) in cols.iter().enumerate().take(7) {
+            if let Some(hid) = col.get("hidden").and_then(|h| h.as_array()) {
+                columns[i].hidden = hid.iter().map(|c| {
+                    if c == "unknown" || c.as_i64()==Some(-1) { None } else { c.as_str().map(|s| parse_card(s).unwrap()).map(Some).unwrap_or(None) }
+                }).collect();
+            }
+            if let Some(vis) = col.get("visible").and_then(|h| h.as_array()) {
+                for card in vis {
+                    if let Some(s) = card.as_str() {
+                        columns[i].visible.push(parse_card(s)?);
+                    }
+                }
+            }
+        }
+    }
+    let mut deck = Vec::new();
+    if let Some(d) = v.get("deck").and_then(|d| d.as_array()) {
+        for card in d {
+            if card == "unknown" || card.as_i64()==Some(-1) {
+                deck.push(None);
+            } else if let Some(s) = card.as_str() {
+                deck.push(Some(parse_card(s)?));
+            }
+        }
+    }
+    Ok(PartialState { columns, deck, draw_step })
 }
 
 #[pymethods]
@@ -17,29 +84,77 @@ impl GameState {
         use lonelybot::shuffler::default_shuffle;
         use core::num::NonZeroU8;
         let deck = default_shuffle(0);
-        Self { inner: StandardSolitaire::new(&deck, NonZeroU8::new(1).unwrap()) }
+        let std = StandardSolitaire::new(&deck, NonZeroU8::new(1).unwrap());
+        Self { state: PartialState::from(&std) }
+    }
+
+    #[staticmethod]
+    fn from_json(txt: &str) -> PyResult<Self> {
+        Ok(Self { state: parse_json_state(txt)? })
+    }
+}
+
+fn get_style(style: &str) -> PlayStyle {
+    match style {
+        "aggressive" => PlayStyle::Aggressive,
+        "conservative" => PlayStyle::Conservative,
+        _ => PlayStyle::Neutral,
     }
 }
 
 #[pyfunction]
-fn py_ranked_moves(state: &GameState, style: &str) -> PyResult<Vec<(String, i32)>> {
-    let style = match style {
-        "aggressive" => PlayStyle::Aggressive,
-        "conservative" => PlayStyle::Conservative,
-        _ => PlayStyle::Neutral,
-    };
-    let mut engine: SolitaireEngine<FullPruner> = state.inner.clone().into();
-    let moves = ranked_moves(&engine, style, &HeuristicConfig::default());
-    Ok(moves
-        .into_iter()
-        .map(|m| (m.mv.to_string(), m.heuristic_score))
-        .collect())
+fn ranked_moves_py(state: &GameState, style: &str) -> PyResult<Vec<(MovePy, i32)>> {
+    let mut rng = SmallRng::seed_from_u64(0);
+    let g = state.state.fill_unknowns_randomly(&mut rng);
+    let engine: SolitaireEngine<FullPruner> = g.into();
+    let moves = ranked_moves(&engine, get_style(style), &HeuristicConfig::default());
+    Ok(moves.into_iter().map(|m| (MovePy{mv:m.mv}, m.heuristic_score)).collect())
+}
+
+#[pyfunction]
+fn best_move_py(state: &GameState, style: &str) -> PyResult<Option<MovePy>> {
+    let mut rng = SmallRng::seed_from_u64(0);
+    let g = state.state.fill_unknowns_randomly(&mut rng);
+    let engine: SolitaireEngine<FullPruner> = g.into();
+    let mv = ranked_moves(&engine, get_style(style), &HeuristicConfig::default()).into_iter().next();
+    Ok(mv.map(|m| MovePy{mv:m.mv}))
+}
+
+#[pyfunction]
+fn best_move_mcts_py(state: &GameState, style: &str) -> PyResult<Option<MovePy>> {
+    let mut rng = SmallRng::seed_from_u64(0);
+    let mut g = state.state.fill_unknowns_randomly(&mut rng);
+    let mut engine: SolitaireEngine<FullPruner> = g.into();
+    let mv = best_move_mcts(&mut engine, get_style(style), &mut rng);
+    Ok(mv.map(|m| MovePy{mv:m.mv}))
+}
+
+#[pyfunction]
+fn column_probabilities_py(state: &GameState) -> PyResult<Vec<Vec<(String, f64)>>> {
+    Ok(state.state.column_probabilities().into_iter()
+        .map(|col| col.into_iter().map(|(c,p)| (c.to_string(), p)).collect()).collect())
+}
+
+#[pyfunction]
+fn analyze_state_py(state: &GameState) -> PyResult<(usize, Vec<String>, usize, usize, f64)> {
+    let info: StateAnalysis = analyze_state(&state.state);
+    Ok((
+        info.unknown_cards,
+        info.remaining_cards.into_iter().map(|c| c.to_string()).collect(),
+        info.blocked_columns,
+        info.mobility,
+        info.deadlock_risk,
+    ))
 }
 
 #[pymodule]
 fn lonelybot_py(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<GameState>()?;
-    m.add_function(wrap_pyfunction!(py_ranked_moves, m)?)?;
+    m.add_class::<MovePy>()?;
+    m.add_function(wrap_pyfunction!(ranked_moves_py, m)?)?;
+    m.add_function(wrap_pyfunction!(best_move_py, m)?)?;
+    m.add_function(wrap_pyfunction!(best_move_mcts_py, m)?)?;
+    m.add_function(wrap_pyfunction!(column_probabilities_py, m)?)?;
+    m.add_function(wrap_pyfunction!(analyze_state_py, m)?)?;
     Ok(())
 }
-

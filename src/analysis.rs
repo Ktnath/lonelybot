@@ -5,7 +5,12 @@
 
 use crate::engine::SolitaireEngine;
 use crate::moves::Move;
+use crate::partial::PartialState;
 use crate::pruning::FullPruner;
+use crate::card::{Card, N_CARDS};
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use alloc::collections::BTreeSet;
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -47,6 +52,21 @@ pub struct RankedMove {
     pub heuristic_score: i32,
     pub simulation_score: i32,
     pub will_block: bool,
+}
+
+/// Basic information about a partial game state.
+#[derive(Clone, Debug)]
+pub struct StateAnalysis {
+    /// Number of cards that are still unknown.
+    pub unknown_cards: usize,
+    /// Cards that are not present in the current information set.
+    pub remaining_cards: Vec<Card>,
+    /// Number of tableau columns where the top card cannot currently move.
+    pub blocked_columns: usize,
+    /// Number of legal moves in a sampled filled state.
+    pub mobility: usize,
+    /// Heuristic estimation of deadlock risk in \[0.0,1.0\].
+    pub deadlock_risk: f64,
 }
 
 /// Evaluate a move using very small heuristics.
@@ -95,5 +115,88 @@ pub fn ranked_moves(
         .collect();
     res.sort_by_key(|m| -m.heuristic_score);
     res
+}
+
+/// Analyze a partial state and return basic metrics.
+#[must_use]
+pub fn analyze_state(state: &PartialState) -> StateAnalysis {
+    let mut used = BTreeSet::new();
+    let mut unknown = 0usize;
+    for col in &state.columns {
+        for c in &col.visible {
+            used.insert(c.mask_index());
+        }
+        for c in &col.hidden {
+            match c {
+                Some(card) => {
+                    used.insert(card.mask_index());
+                }
+                None => unknown += 1,
+            }
+        }
+    }
+    for c in &state.deck {
+        match c {
+            Some(card) => {
+                used.insert(card.mask_index());
+            }
+            None => unknown += 1,
+        }
+    }
+    let remaining_cards: Vec<Card> = (0..N_CARDS)
+        .filter(|i| !used.contains(i))
+        .map(Card::from_mask_index)
+        .collect();
+
+    // Compute mobility using a deterministic fill of unknowns
+    let mut rng = SmallRng::seed_from_u64(0);
+    let filled = state.fill_unknowns_randomly(&mut rng);
+    let solitaire: crate::state::Solitaire = (&filled).into();
+    let engine: SolitaireEngine<FullPruner> = solitaire.into();
+    let mobility = engine.list_moves_dom().len();
+
+    // Blocked columns heuristics
+    let mut blocked = 0usize;
+    for (i, col) in state.columns.iter().enumerate() {
+        let top = col.visible.last().copied();
+        if top.is_none() {
+            if !col.hidden.is_empty() {
+                blocked += 1;
+            }
+            continue;
+        }
+        let top = top.unwrap();
+        let mut movable = false;
+        for (j, other) in state.columns.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            let dest = other.visible.last().copied();
+            if top.go_after(dest) {
+                movable = true;
+                break;
+            }
+            if dest.is_none() && top.is_king() {
+                movable = true;
+                break;
+            }
+        }
+        if !movable {
+            blocked += 1;
+        }
+    }
+    let deadlock_risk = if mobility == 0 && unknown == 0 {
+        1.0
+    } else {
+        blocked as f64 / state.columns.len() as f64
+    };
+
+    StateAnalysis {
+        unknown_cards: unknown,
+        remaining_cards,
+        blocked_columns: blocked,
+        mobility,
+        deadlock_risk,
+    }
 }
 

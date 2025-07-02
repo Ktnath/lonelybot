@@ -40,6 +40,21 @@ pub struct PartialState {
     pub draw_step: u8,
 }
 
+impl From<&StandardSolitaire> for PartialState {
+    fn from(g: &StandardSolitaire) -> Self {
+        let columns: [PartialColumn; 7] = core::array::from_fn(|i| PartialColumn {
+            hidden: g.get_hidden()[i].iter().map(|&c| Some(c)).collect(),
+            visible: g.get_piles()[i].clone(),
+        });
+        let deck: Vec<Option<Card>> = g.get_deck().iter().map(Some).collect();
+        Self {
+            columns,
+            deck,
+            draw_step: g.get_deck().draw_step().get(),
+        }
+    }
+}
+
 impl PartialState {
     /// Fill the unknown cards using a random permutation of the remaining
     /// cards. The returned `StandardSolitaire` can then be solved using the
