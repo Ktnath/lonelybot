@@ -32,7 +32,7 @@ use crate::tui::print_game;
 
 #[derive(ValueEnum, Clone, Copy)]
 enum SeedType {
-    /// Doc comment
+    /// Type de graine pour choisir l'algorithme de mélange
     Default,
     Solvitaire,
     KlondikeSolver,
