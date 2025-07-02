@@ -1,0 +1,13 @@
+{
+  "columns": [
+    {"hidden": ["unknown"], "visible": ["AS"]},
+    {"hidden": ["unknown", "unknown"], "visible": ["2D"]},
+    {"hidden": [], "visible": ["3C"]},
+    {"hidden": [], "visible": ["4H"]},
+    {"hidden": [], "visible": ["5S"]},
+    {"hidden": [], "visible": ["6D"]},
+    {"hidden": [], "visible": ["7C"]}
+  ],
+  "deck": ["unknown"],
+  "draw_step": 1
+}
