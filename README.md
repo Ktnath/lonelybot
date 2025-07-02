@@ -3,7 +3,7 @@ Lonelybot
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Crates
-- Lonelybot is a library crate with #no_std support, and can be use in webassembly
+- Lonelybot is a library crate with #no_std support, and can be used in WebAssembly
 - Lonecli is a binary wrapper crate on lonelybot to provide the features through CLI
 
 ## Features
