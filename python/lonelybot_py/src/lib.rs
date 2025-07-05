@@ -125,13 +125,18 @@ fn parse_json_state(txt: &str) -> PyResult<PartialState> {
     if let Some(cols) = v.get("columns").and_then(|c| c.as_array()) {
         for (i,col) in cols.iter().enumerate().take(7) {
             if let Some(hid) = col.get("hidden").and_then(|h| h.as_array()) {
-                columns[i].hidden = hid.iter().map(|c| {
-                    if c == "unknown" || c.as_i64() == Some(-1) {
-                        None
-                    } else {
-                        c.as_str().map(|s| parse_card(s).unwrap()).map(Some).unwrap_or(None)
-                    }
-                }).collect();
+                columns[i].hidden = hid
+                    .iter()
+                    .map(|c| {
+                        if c == "unknown" || c.as_i64() == Some(-1) {
+                            Ok(None)
+                        } else if let Some(s) = c.as_str() {
+                            parse_card(s).map(Some)
+                        } else {
+                            Ok(None)
+                        }
+                    })
+                    .collect::<PyResult<Vec<Option<Card>>>>()?;
             }
             if let Some(vis) = col.get("visible").and_then(|h| h.as_array()) {
                 for card in vis {
@@ -289,4 +294,15 @@ fn lonelybot_py(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(column_probabilities_py, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_state_py, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_card_in_json_returns_error() {
+        let data = r#"{"columns":[{"hidden":["ZZ"],"visible":[]}],"deck":[]}"#;
+        assert!(parse_json_state(data).is_err());
+    }
 }
