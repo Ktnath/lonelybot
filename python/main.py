@@ -11,6 +11,7 @@ from utils import parse_hidden
 
 def main():
     game = GameState()
+    style = "neutral"
     cfg = HeuristicConfigPy(
         None, None, None, None, None,
         None, None,  # long_column_bonus, chain_bonus
@@ -23,7 +24,7 @@ def main():
             break
 
         elif cmd == "best":
-            moves = ranked_moves_py(game, "neutral", cfg)
+            moves = ranked_moves_py(game, style, cfg)
             if moves:
                 print(moves[0])
             else:
@@ -99,9 +100,22 @@ def main():
             print(f"{name} set to {value}")
             continue
 
+        elif cmd.startswith("style"):
+            try:
+                _, st = cmd.split(maxsplit=1)
+            except ValueError:
+                print("Usage: style <aggressive|conservative|neutral>")
+                continue
+            if st not in ["aggressive", "conservative", "neutral"]:
+                print("Unknown style. Choose aggressive, conservative or neutral")
+                continue
+            style = st
+            print("style set to", style)
+            continue
+
         elif cmd == "help":
             print(
-                "commands: best, prob, custom <file>, weights <file>, set <field> <value>, quit"
+                "commands: best, prob, custom <file>, weights <file>, set <field> <value>, style <type>, quit"
             )
             continue
 

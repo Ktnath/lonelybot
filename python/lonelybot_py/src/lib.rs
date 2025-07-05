@@ -214,7 +214,8 @@ fn best_move_py(
     cfg: Option<&HeuristicConfigPy>,
 ) -> PyResult<Option<MovePy>> {
     let mut rng = SmallRng::seed_from_u64(0);
-    let g = state.state.fill_unknowns_randomly(&mut rng);
+    let probs = state.state.column_probabilities();
+    let g = state.state.fill_unknowns_weighted(&probs, &mut rng);
     let solitaire: lonelybot::state::Solitaire = (&g).into();
     let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
