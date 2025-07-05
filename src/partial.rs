@@ -115,6 +115,86 @@ impl PartialState {
         StandardSolitaire::new(&array, NonZeroU8::new(self.draw_step).unwrap())
     }
 
+    /// Fill the unknown cards using weighted probabilities for each column.
+    #[must_use]
+    pub fn fill_unknowns_weighted<R: Rng>(
+        &self,
+        probs: &[Vec<(Card, f64)>],
+        rng: &mut R,
+    ) -> StandardSolitaire {
+        let mut used = BTreeSet::new();
+        for col in &self.columns {
+            for c in &col.visible {
+                used.insert(c.mask_index());
+            }
+            for c in &col.hidden {
+                if let Some(card) = c {
+                    used.insert(card.mask_index());
+                }
+            }
+        }
+        for c in &self.deck {
+            if let Some(card) = c {
+                used.insert(card.mask_index());
+            }
+        }
+
+        let mut remaining: Vec<Card> = (0..N_CARDS)
+            .filter(|i| !used.contains(i))
+            .map(Card::from_mask_index)
+            .collect();
+
+        let mut cards = Vec::with_capacity(N_CARDS as usize);
+        for (idx, col) in self.columns.iter().enumerate() {
+            for h in &col.hidden {
+                if let Some(c) = h {
+                    cards.push(*c);
+                } else {
+                    let weights: Vec<f64> = remaining
+                        .iter()
+                        .map(|c| {
+                            probs[idx]
+                                .iter()
+                                .find(|(cc, _)| cc == c)
+                                .map(|(_, p)| *p)
+                                .unwrap_or(0.0)
+                        })
+                        .collect();
+                    let sum: f64 = weights.iter().sum();
+                    let mut r = rng.gen::<f64>() * sum;
+                    let mut choose = 0usize;
+                    for (i, w) in weights.iter().enumerate() {
+                        if r <= *w {
+                            choose = i;
+                            break;
+                        }
+                        r -= *w;
+                    }
+                    cards.push(remaining.remove(choose));
+                }
+            }
+            for &v in &col.visible {
+                cards.push(v);
+            }
+        }
+        for c in &self.deck {
+            if let Some(card) = c.clone() {
+                cards.push(card);
+            } else {
+                let idx = rng.gen_range(0..remaining.len());
+                cards.push(remaining.remove(idx));
+            }
+        }
+        while cards.len() < N_CARDS as usize {
+            let idx = rng.gen_range(0..remaining.len());
+            cards.push(remaining.remove(idx));
+        }
+        let mut array: CardDeck = [Card::DEFAULT; N_CARDS as usize];
+        array.copy_from_slice(&cards);
+        use core::num::NonZeroU8;
+        StandardSolitaire::new(&array, NonZeroU8::new(self.draw_step).unwrap())
+    }
+
     /// Compute simplistic probability estimates for every hidden column.
     #[must_use]
     pub fn column_probabilities(&self) -> Vec<Vec<(Card, f64)>> {

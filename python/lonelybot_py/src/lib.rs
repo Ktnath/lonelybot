@@ -185,10 +185,8 @@ fn best_move_mcts_py(
     cfg: Option<&HeuristicConfigPy>,
 ) -> PyResult<Option<MovePy>> {
     let mut rng = SmallRng::seed_from_u64(0);
-    let mut g = state.state.fill_unknowns_randomly(&mut rng);
-    let mut engine: SolitaireEngine<FullPruner> = g.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let mv = best_move_mcts(&mut engine, get_style(style), &cfg, &mut rng);
+    let mv = best_move_mcts(&state.state, get_style(style), &cfg, &mut rng);
     Ok(mv.map(|m| MovePy{mv:m.mv}))
 }
 
