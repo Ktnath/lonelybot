@@ -25,6 +25,7 @@ pub fn best_move_mcts<R: Rng>(
 
     for m in &mut moves {
         let mut total = 0f64;
+        let mut wins = 0usize;
 
         // Monte Carlo playouts with weighted unknowns
         for _ in 0..3 {
@@ -46,6 +47,7 @@ pub fn best_move_mcts<R: Rng>(
                     tmp.do_move(mv);
                     depth += 1;
                     if tmp.state().is_win() {
+                        wins += 1;
                         score += 10;
                         break;
                     }
@@ -55,6 +57,9 @@ pub fn best_move_mcts<R: Rng>(
         }
 
         let avg = total / 3.0;
+        // round() may not be available in core for no_std; emulate simple rounding
+        m.simulation_score = (avg + 0.5) as i32;
+        m.win_rate = wins as f64 / 9.0;
         if let Some((_, best_score)) = &mut best {
             if avg > *best_score {
                 *best_score = avg;
