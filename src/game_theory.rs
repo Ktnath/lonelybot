@@ -4,8 +4,8 @@ use rand::prelude::*;
 
 use crate::analysis::{ranked_moves, HeuristicConfig, PlayStyle, RankedMove};
 use crate::engine::SolitaireEngine;
-use crate::partial::PartialState;
 use crate::pruning::FullPruner;
+use crate::partial::PartialState;
 
 /// Run a light Monte Carlo tree search to pick the best move.
 #[must_use]
@@ -15,20 +15,18 @@ pub fn best_move_mcts<R: Rng>(
     cfg: &HeuristicConfig,
     rng: &mut R,
 ) -> Option<RankedMove> {
-    let filled = state.fill_unknowns_randomly(rng);
+    let probs = state.column_probabilities();
+    let filled = state.fill_unknowns_weighted(&probs, rng);
     let solitaire: crate::state::Solitaire = (&filled).into();
-
-  let mut engine: SolitaireEngine<FullPruner> = solitaire.into();
-
+    let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let mut moves = ranked_moves(&engine, state, style, cfg);
 
-    let probs = state.column_probabilities();
     let mut best: Option<(RankedMove, f64)> = None;
 
     for m in &mut moves {
         let mut total = 0f64;
 
-        // Playouts pondérés
+        // Monte Carlo playouts with weighted unknowns
         for _ in 0..3 {
             let filled = state.fill_unknowns_weighted(&probs, rng);
             let solitaire_child: crate::state::Solitaire = (&filled).into();
