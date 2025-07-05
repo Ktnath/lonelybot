@@ -10,6 +10,7 @@ use lonelybot::standard::StandardSolitaire;
 use lonelybot::card::{Card, N_SUITS, N_RANKS};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
+use pyo3::types::PyDict;
 use serde_json::Value;
 
 #[pyclass]
@@ -170,13 +171,29 @@ fn ranked_moves_py(
     state: &GameState,
     style: &str,
     cfg: Option<&HeuristicConfigPy>,
-) -> PyResult<Vec<(MovePy, i32)>> {
+) -> PyResult<Vec<PyObject>> {
     let mut rng = SmallRng::seed_from_u64(0);
     let g = state.state.fill_unknowns_randomly(&mut rng);
-    let engine: SolitaireEngine<FullPruner> = g.into();
+    let solitaire: lonelybot::state::Solitaire = (&g).into();
+    let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
     let moves = ranked_moves(&engine, get_style(style), &cfg);
-    Ok(moves.into_iter().map(|m| (MovePy{mv:m.mv}, m.heuristic_score)).collect())
+    Python::with_gil(|py| {
+        let mut res = Vec::new();
+        for m in moves {
+            let dict = PyDict::new(py);
+            dict.set_item("move", MovePy { mv: m.mv }.into_py(py))?;
+            dict.set_item("heuristic_score", m.heuristic_score)?;
+            dict.set_item("simulation_score", m.simulation_score)?;
+            dict.set_item("will_block", m.will_block)?;
+            let revealed: Vec<String> = m.revealed_cards.iter().map(|c| c.to_string()).collect();
+            dict.set_item("revealed_cards", revealed)?;
+            dict.set_item("columns_freed", m.columns_freed)?;
+            dict.set_item("win_rate", m.win_rate)?;
+            res.push(dict.into());
+        }
+        Ok(res)
+    })
 }
 
 #[pyfunction]
@@ -187,7 +204,8 @@ fn best_move_py(
 ) -> PyResult<Option<MovePy>> {
     let mut rng = SmallRng::seed_from_u64(0);
     let g = state.state.fill_unknowns_randomly(&mut rng);
-    let engine: SolitaireEngine<FullPruner> = g.into();
+    let solitaire: lonelybot::state::Solitaire = (&g).into();
+    let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
     let mv = ranked_moves(&engine, get_style(style), &cfg).into_iter().next();
     Ok(mv.map(|m| MovePy{mv:m.mv}))
@@ -198,11 +216,27 @@ fn best_move_mcts_py(
     state: &GameState,
     style: &str,
     cfg: Option<&HeuristicConfigPy>,
-) -> PyResult<Option<MovePy>> {
+) -> PyResult<Option<PyObject>> {
     let mut rng = SmallRng::seed_from_u64(0);
+    let mut g = state.state.fill_unknowns_randomly(&mut rng);
+    let solitaire: lonelybot::state::Solitaire = (&g).into();
+    let mut engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let mv = best_move_mcts(&state.state, get_style(style), &cfg, &mut rng);
-    Ok(mv.map(|m| MovePy{mv:m.mv}))
+    let mv = best_move_mcts(&mut engine, get_style(style), &cfg, &mut rng);
+    Python::with_gil(|py| {
+        Ok(mv.map(|m| {
+            let dict = PyDict::new(py);
+            dict.set_item("move", MovePy { mv: m.mv }.into_py(py)).unwrap();
+            dict.set_item("heuristic_score", m.heuristic_score).unwrap();
+            dict.set_item("simulation_score", m.simulation_score).unwrap();
+            dict.set_item("will_block", m.will_block).unwrap();
+            let revealed: Vec<String> = m.revealed_cards.iter().map(|c| c.to_string()).collect();
+            dict.set_item("revealed_cards", revealed).unwrap();
+            dict.set_item("columns_freed", m.columns_freed).unwrap();
+            dict.set_item("win_rate", m.win_rate).unwrap();
+            dict.into()
+        }))
+    })
 }
 
 #[pyfunction]

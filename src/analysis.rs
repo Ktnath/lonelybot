@@ -8,6 +8,8 @@ use crate::moves::Move;
 use crate::partial::PartialState;
 use crate::pruning::FullPruner;
 use crate::card::{Card, N_CARDS};
+use crate::state::{Solitaire, ExtraInfo};
+use crate::deck::N_PILES;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use alloc::collections::BTreeSet;
@@ -58,6 +60,9 @@ pub struct RankedMove {
     pub heuristic_score: i32,
     pub simulation_score: i32,
     pub will_block: bool,
+    pub revealed_cards: Vec<Card>,
+    pub columns_freed: usize,
+    pub win_rate: f64,
 }
 
 /// Basic information about a partial game state.
@@ -100,6 +105,18 @@ fn evaluate_move(style: PlayStyle, engine: &SolitaireEngine<FullPruner>, m: Move
     score
 }
 
+fn count_empty_columns(game: &Solitaire) -> usize {
+    let piles = game.compute_visible_piles();
+    let hidden = game.get_hidden();
+    let mut count = 0usize;
+    for i in 0..N_PILES {
+        if piles[i as usize].is_empty() && hidden.len(i) == 0 {
+            count += 1;
+        }
+    }
+    count
+}
+
 /// Return a sorted list of legal moves with heuristic scores.
 #[must_use]
 pub fn ranked_moves(
@@ -108,13 +125,26 @@ pub fn ranked_moves(
     cfg: &HeuristicConfig,
 ) -> Vec<RankedMove> {
     let moves = engine.list_moves_dom();
+    let base_empty = count_empty_columns(engine.state());
     let mut res: Vec<RankedMove> = moves
         .iter()
-        .map(|&m| RankedMove {
-            mv: m,
-            heuristic_score: evaluate_move(style, engine, m, cfg),
-            simulation_score: 0,
-            will_block: false,
+        .map(|&m| {
+            let mut st = engine.state().clone();
+            let (_, (_, extra)) = st.do_move(m);
+            let columns_freed = count_empty_columns(&st).saturating_sub(base_empty);
+            let revealed_cards = match extra {
+                ExtraInfo::Card(c) => alloc::vec![c],
+                _ => Vec::new(),
+            };
+            RankedMove {
+                mv: m,
+                heuristic_score: evaluate_move(style, engine, m, cfg),
+                simulation_score: 0,
+                will_block: false,
+                revealed_cards,
+                columns_freed,
+                win_rate: 0.0,
+            }
         })
         .collect();
     res.sort_by_key(|m| -m.heuristic_score);
