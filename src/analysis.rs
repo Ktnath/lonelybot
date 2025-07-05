@@ -70,7 +70,13 @@ pub struct StateAnalysis {
 }
 
 /// Evaluate a move using very small heuristics.
-fn evaluate_move(style: PlayStyle, engine: &SolitaireEngine<FullPruner>, m: Move, cfg: &HeuristicConfig) -> i32 {
+fn evaluate_move(
+    style: PlayStyle,
+    engine: &SolitaireEngine<FullPruner>,
+    state: &PartialState,
+    m: Move,
+    cfg: &HeuristicConfig,
+) -> (i32, i32) {
     let mut score = 0;
     match m {
         Move::Reveal(_) => score += cfg.reveal_bonus,
@@ -93,24 +99,47 @@ fn evaluate_move(style: PlayStyle, engine: &SolitaireEngine<FullPruner>, m: Move
         PlayStyle::Conservative => -1,
         PlayStyle::Neutral => 0,
     };
-    score
+
+    // probability weighting for unknown cards
+    let probabilities = state.column_probabilities();
+    let prob = match m {
+        Move::Reveal(c) => {
+            let idx = engine.state().get_hidden().find(c) as usize;
+            if state.columns[idx].hidden.iter().any(|h| *h == Some(c)) {
+                1.0
+            } else {
+                probabilities[idx]
+                    .iter()
+                    .find_map(|(card, p)| if *card == c { Some(*p) } else { None })
+                    .unwrap_or(0.0)
+            }
+        }
+        _ => 1.0,
+    };
+
+    let sim_score = (score as f64 * prob + 0.5) as i32;
+    (score, sim_score)
 }
 
 /// Return a sorted list of legal moves with heuristic scores.
 #[must_use]
 pub fn ranked_moves(
     engine: &SolitaireEngine<FullPruner>,
+    state: &PartialState,
     style: PlayStyle,
     cfg: &HeuristicConfig,
 ) -> Vec<RankedMove> {
     let moves = engine.list_moves_dom();
     let mut res: Vec<RankedMove> = moves
         .iter()
-        .map(|&m| RankedMove {
-            mv: m,
-            heuristic_score: evaluate_move(style, engine, m, cfg),
-            simulation_score: 0,
-            will_block: false,
+        .map(|&m| {
+            let (h, sim) = evaluate_move(style, engine, state, m, cfg);
+            RankedMove {
+                mv: m,
+                heuristic_score: h,
+                simulation_score: sim,
+                will_block: false,
+            }
         })
         .collect();
     res.sort_by_key(|m| -m.heuristic_score);

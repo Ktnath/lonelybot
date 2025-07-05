@@ -160,7 +160,7 @@ fn ranked_moves_py(
     let g = state.state.fill_unknowns_randomly(&mut rng);
     let engine: SolitaireEngine<FullPruner> = g.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let moves = ranked_moves(&engine, get_style(style), &cfg);
+    let moves = ranked_moves(&engine, &state.state, get_style(style), &cfg);
     Ok(moves.into_iter().map(|m| (MovePy{mv:m.mv}, m.heuristic_score)).collect())
 }
 
@@ -174,7 +174,9 @@ fn best_move_py(
     let g = state.state.fill_unknowns_randomly(&mut rng);
     let engine: SolitaireEngine<FullPruner> = g.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let mv = ranked_moves(&engine, get_style(style), &cfg).into_iter().next();
+    let mv = ranked_moves(&engine, &state.state, get_style(style), &cfg)
+        .into_iter()
+        .next();
     Ok(mv.map(|m| MovePy{mv:m.mv}))
 }
 
@@ -188,7 +190,7 @@ fn best_move_mcts_py(
     let mut g = state.state.fill_unknowns_randomly(&mut rng);
     let mut engine: SolitaireEngine<FullPruner> = g.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let mv = best_move_mcts(&mut engine, get_style(style), &cfg, &mut rng);
+    let mv = best_move_mcts(&mut engine, &state.state, get_style(style), &cfg, &mut rng);
     Ok(mv.map(|m| MovePy{mv:m.mv}))
 }
 

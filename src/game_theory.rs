@@ -3,6 +3,7 @@
 use rand::prelude::*;
 
 use crate::analysis::{ranked_moves, HeuristicConfig, PlayStyle, RankedMove};
+use crate::partial::PartialState;
 use crate::engine::SolitaireEngine;
 use crate::pruning::FullPruner;
 
@@ -10,11 +11,12 @@ use crate::pruning::FullPruner;
 #[must_use]
 pub fn best_move_mcts<R: Rng>(
     engine: &mut SolitaireEngine<FullPruner>,
+    state: &PartialState,
     style: PlayStyle,
     cfg: &HeuristicConfig,
     rng: &mut R,
 ) -> Option<RankedMove> {
-    let moves = ranked_moves(engine, style, cfg);
+    let moves = ranked_moves(engine, state, style, cfg);
     // perform a very small random playout for each move
     let mut best: Option<(RankedMove, i32)> = None;
     for m in moves {
