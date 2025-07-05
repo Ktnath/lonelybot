@@ -8,6 +8,8 @@ use crate::moves::Move;
 use crate::partial::PartialState;
 use crate::pruning::FullPruner;
 use crate::card::{Card, N_CARDS};
+use crate::state::{Solitaire, ExtraInfo};
+use crate::deck::N_PILES;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use alloc::collections::BTreeSet;
@@ -31,6 +33,9 @@ pub struct HeuristicConfig {
     pub early_foundation_penalty: i32,
     pub keep_king_bonus: i32,
     pub deadlock_penalty: i32,
+    pub aggressive_coef: i32,
+    pub conservative_coef: i32,
+    pub neutral_coef: i32,
 }
 
 impl Default for HeuristicConfig {
@@ -41,6 +46,9 @@ impl Default for HeuristicConfig {
             early_foundation_penalty: -3,
             keep_king_bonus: 1,
             deadlock_penalty: -10,
+            aggressive_coef: 1,
+            conservative_coef: 1,
+            neutral_coef: 1,
         }
     }
 }
@@ -52,6 +60,9 @@ pub struct RankedMove {
     pub heuristic_score: i32,
     pub simulation_score: i32,
     pub will_block: bool,
+    pub revealed_cards: Vec<Card>,
+    pub columns_freed: usize,
+    pub win_rate: f64,
 }
 
 /// Basic information about a partial game state.
@@ -76,31 +87,128 @@ fn evaluate_move(
     state: &PartialState,
     m: Move,
     cfg: &HeuristicConfig,
-) -> (i32, i32) {
+) -> i32 {
+    let coeff = match style {
+        PlayStyle::Aggressive => cfg.aggressive_coef,
+        PlayStyle::Conservative => cfg.conservative_coef,
+        PlayStyle::Neutral => cfg.neutral_coef,
+    };
+
+    let mut score = 0;
+
+    // Appliquer le coup dans une copie
+    let mut sim_engine = engine.state().clone().into();
+    sim_engine.do_move(m);
+
+    // Heuristique : carte révélée ?
+    let revealed = sim_engine.last_revealed_card();
+    if revealed.is_some() {
+        score += cfg.reveal_bonus;
+    }
+
+    // Heuristique : colonne vidée ?
+    if let Some((from_col, _)) = m.source_column_index() {
+        if engine.state().columns[from_col].is_empty()
+            && !sim_engine.state().columns[from_col].is_empty()
+        {
+            score += cfg.empty_column_bonus;
+        }
+    }
+
+    // Heuristique : roi préservé ?
+    if let Some(card) = revealed {
+        if card.rank() == 12 {
+            score += cfg.keep_king_bonus;
+        }
+    }
+
+    // Heuristique : early foundation penalty
+    if sim_engine.state().foundations.iter().any(|&v| v > 1) {
+        score -= cfg.early_foundation_penalty;
+    }
+
+    // Heuristique : blocage (deadlock)
+    if sim_engine.list_moves_dom().is_empty() {
+        score -= cfg.deadlock_penalty;
+    }
+
+    score * coeff
+}
+
     let mut score = 0;
     match m {
-        Move::Reveal(_) => score += cfg.reveal_bonus,
+        Move::Reveal(_) => score += cfg.reveal_bonus * coeff,
         Move::PileStack(c) => {
             if c.rank() < 5 {
-                score += cfg.early_foundation_penalty;
+                score += cfg.early_foundation_penalty * coeff;
             }
         }
         Move::DeckPile(c) | Move::StackPile(c) => {
             if c.is_king() && engine.state().get_hidden().len(6) == 0 {
-                score += cfg.keep_king_bonus;
+                score += cfg.keep_king_bonus * coeff;
             }
         }
         _ => {}
     }
+fn evaluate_move(
+    style: PlayStyle,
+    engine: &SolitaireEngine<FullPruner>,
+    state: &PartialState,
+    m: Move,
+    cfg: &HeuristicConfig,
+) -> i32 {
+    let coeff = match style {
+        PlayStyle::Aggressive => cfg.aggressive_coef,
+        PlayStyle::Conservative => cfg.conservative_coef,
+        PlayStyle::Neutral => cfg.neutral_coef,
+    };
 
-    // style modifier
+    let mut score = 0;
+
+    // Appliquer le coup dans une copie
+    let mut sim_engine = engine.state().clone().into();
+    sim_engine.do_move(m);
+
+    // Heuristique : carte révélée ?
+    let revealed = sim_engine.last_revealed_card();
+    if revealed.is_some() {
+        score += cfg.reveal_bonus;
+    }
+
+    // Heuristique : colonne vidée ?
+    if let Some((from_col, _)) = m.source_column_index() {
+        if engine.state().columns[from_col].is_empty()
+            && !sim_engine.state().columns[from_col].is_empty()
+        {
+            score += cfg.empty_column_bonus;
+        }
+    }
+
+    // Heuristique : roi révélé ?
+    if let Some(card) = revealed {
+        if card.rank() == 12 {
+            score += cfg.keep_king_bonus;
+        }
+    }
+
+    // Heuristique : early foundation penalty
+    if sim_engine.state().foundations.iter().any(|&v| v > 1) {
+        score -= cfg.early_foundation_penalty;
+    }
+
+    // Heuristique : deadlock potentiel ?
+    if sim_engine.list_moves_dom().is_empty() {
+        score -= cfg.deadlock_penalty;
+    }
+
+    // Ajustement par style général
     score += match style {
         PlayStyle::Aggressive => 1,
         PlayStyle::Conservative => -1,
         PlayStyle::Neutral => 0,
     };
 
-    // probability weighting for unknown cards
+    // Poids de probabilité si le coup révèle une carte inconnue
     let probabilities = state.column_probabilities();
     let prob = match m {
         Move::Reveal(c) => {
@@ -108,17 +216,34 @@ fn evaluate_move(
             if state.columns[idx].hidden.iter().any(|h| *h == Some(c)) {
                 1.0
             } else {
-                probabilities[idx]
-                    .iter()
-                    .find_map(|(card, p)| if *card == c { Some(*p) } else { None })
+                probabilities
+                    .get(idx)
+                    .and_then(|col_probs| {
+                        col_probs
+                            .iter()
+                            .find_map(|(card, p)| if *card == c { Some(*p) } else { None })
+                    })
                     .unwrap_or(0.0)
             }
         }
         _ => 1.0,
     };
 
-    let sim_score = (score as f64 * prob + 0.5) as i32;
-    (score, sim_score)
+    // Score pondéré par la probabilité d'occurrence réelle
+    ((score as f64) * prob + 0.5).round() as i32
+}
+
+
+fn count_empty_columns(game: &Solitaire) -> usize {
+    let piles = game.compute_visible_piles();
+    let hidden = game.get_hidden();
+    let mut count = 0usize;
+    for i in 0..N_PILES {
+        if piles[i as usize].is_empty() && hidden.len(i) == 0 {
+            count += 1;
+        }
+    }
+    count
 }
 
 /// Return a sorted list of legal moves with heuristic scores.
@@ -130,15 +255,32 @@ pub fn ranked_moves(
     cfg: &HeuristicConfig,
 ) -> Vec<RankedMove> {
     let moves = engine.list_moves_dom();
+    let base_empty = count_empty_columns(engine.state());
     let mut res: Vec<RankedMove> = moves
         .iter()
         .map(|&m| {
-            let (h, sim) = evaluate_move(style, engine, state, m, cfg);
-            RankedMove {
-                mv: m,
-                heuristic_score: h,
-                simulation_score: sim,
-                will_block: false,
+let mut st = engine.state().clone();
+let base_empty = count_empty_columns(engine.state());
+let (_, (_, extra)) = st.do_move(m);
+let columns_freed = count_empty_columns(&st).saturating_sub(base_empty);
+
+let revealed_cards = match extra {
+    ExtraInfo::Card(c) => alloc::vec![c],
+    _ => Vec::new(),
+};
+
+let (heuristic_score, simulation_score) = evaluate_move(style, engine, state, m, cfg);
+
+RankedMove {
+    mv: m,
+    heuristic_score,
+    simulation_score,
+    will_block: false,
+    revealed_cards,
+    columns_freed,
+    win_rate: 0.0, // sera mis à jour plus tard par playouts
+}
+
             }
         })
         .collect();
