@@ -57,7 +57,8 @@ cfg = HeuristicConfigPy(reveal_bonus=10)
 print(ranked_moves_py(GameState(), "neutral", cfg)[0])
 ```
 Style profiles can also be tuned with `aggressive_coef`, `conservative_coef` and
-`neutral_coef` fields in `HeuristicConfigPy`.
+`neutral_coef` fields in `HeuristicConfigPy`. These coefficients multiply the
+final heuristic score for a move depending on the selected style.
 
 ## Seed
 There are 7 seed types

@@ -38,6 +38,8 @@ pub struct HeuristicConfig {
     pub deadlock_penalty: i32,
     pub long_column_bonus: i32,
     pub chain_bonus: i32,
+    /// Style coefficients multiply the final heuristic score based on the
+    /// selected play style.
     pub aggressive_coef: i32,
     pub conservative_coef: i32,
     pub neutral_coef: i32,
@@ -135,7 +137,7 @@ fn evaluate_move(
         }
         Move::PileStack(c) => {
             if c.rank() < 5 {
-                score += cfg.early_foundation_penalty * coeff;
+                score += cfg.early_foundation_penalty;
             }
             let col = hidden.find(c);
             let down = hidden.len(col).saturating_sub(1);
@@ -151,7 +153,7 @@ fn evaluate_move(
                 score += cfg.empty_column_bonus;
             }
             if c.is_king() && hidden.len(6) == 0 {
-                score += cfg.keep_king_bonus * coeff;
+                score += cfg.keep_king_bonus;
             }
         }
         _ => {}
@@ -195,7 +197,8 @@ fn evaluate_move(
 
     // round() may not be available in core for no_std; emulate simple rounding
 
-    ((score as f64) * prob + 0.5) as i32
+    let scaled = score * coeff;
+    ((scaled as f64) * prob + 0.5) as i32
 }
 
 fn count_empty_columns(game: &Solitaire) -> usize {
