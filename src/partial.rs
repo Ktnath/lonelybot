@@ -161,15 +161,20 @@ impl PartialState {
                         })
                         .collect();
                     let sum: f64 = weights.iter().sum();
-                    let mut r = rng.gen::<f64>() * sum;
-                    let mut choose = 0usize;
-                    for (i, w) in weights.iter().enumerate() {
-                        if r <= *w {
-                            choose = i;
-                            break;
+                    let choose = if sum == 0.0 {
+                        rng.gen_range(0..remaining.len())
+                    } else {
+                        let mut r = rng.gen::<f64>() * sum;
+                        let mut c = 0usize;
+                        for (i, w) in weights.iter().enumerate() {
+                            if r <= *w {
+                                c = i;
+                                break;
+                            }
+                            r -= *w;
                         }
-                        r -= *w;
-                    }
+                        c
+                    };
                     cards.push(remaining.remove(choose));
                 }
             }
