@@ -8,12 +8,15 @@ use crate::moves::Move;
 use crate::partial::PartialState;
 use crate::pruning::FullPruner;
 use crate::card::{Card, N_CARDS};
+use crate::deck::N_PILES;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use alloc::collections::BTreeSet;
 
 extern crate alloc;
 use alloc::vec::Vec;
+
+const LONG_COLUMN_THRESHOLD: u8 = 3;
 
 /// Player style used to influence the evaluation of moves.
 #[derive(Clone, Copy, Debug)]
@@ -31,6 +34,8 @@ pub struct HeuristicConfig {
     pub early_foundation_penalty: i32,
     pub keep_king_bonus: i32,
     pub deadlock_penalty: i32,
+    pub long_column_bonus: i32,
+    pub chain_bonus: i32,
 }
 
 impl Default for HeuristicConfig {
@@ -41,6 +46,8 @@ impl Default for HeuristicConfig {
             early_foundation_penalty: -3,
             keep_king_bonus: 1,
             deadlock_penalty: -10,
+            long_column_bonus: 3,
+            chain_bonus: 2,
         }
     }
 }
@@ -69,17 +76,63 @@ pub struct StateAnalysis {
     pub deadlock_risk: f64,
 }
 
+fn move_enables_chain(engine: &SolitaireEngine<FullPruner>, m: Move, col: u8) -> bool {
+    let mut tmp: SolitaireEngine<FullPruner> = engine.state().clone().into();
+    if !tmp.do_move(m) {
+        return false;
+    }
+    let next = tmp.state().get_hidden().peek(col).copied();
+    let moves = tmp.list_moves_dom();
+    if let Some(card) = next {
+        moves.iter().any(|mv| match *mv {
+            Move::DeckPile(c)
+            | Move::DeckStack(c)
+            | Move::PileStack(c)
+            | Move::StackPile(c)
+            | Move::Reveal(c) => c == card,
+        })
+    } else {
+        false
+    }
+}
+
 /// Evaluate a move using very small heuristics.
 fn evaluate_move(style: PlayStyle, engine: &SolitaireEngine<FullPruner>, m: Move, cfg: &HeuristicConfig) -> i32 {
+    let hidden = engine.state().get_hidden();
+    let has_empty = (0..N_PILES).any(|i| hidden.len(i as u8) == 0);
     let mut score = 0;
     match m {
-        Move::Reveal(_) => score += cfg.reveal_bonus,
+        Move::Reveal(c) => {
+            score += cfg.reveal_bonus;
+            let col = hidden.find(c);
+            let down = hidden.len(col).saturating_sub(1);
+            if down > LONG_COLUMN_THRESHOLD {
+                score += cfg.long_column_bonus;
+            }
+            if has_empty && c.is_king() {
+                score += cfg.empty_column_bonus;
+            }
+            if move_enables_chain(engine, m, col) {
+                score += cfg.chain_bonus;
+            }
+        }
         Move::PileStack(c) => {
             if c.rank() < 5 {
                 score += cfg.early_foundation_penalty;
             }
+            let col = hidden.find(c);
+            let down = hidden.len(col).saturating_sub(1);
+            if down > 0 && down > LONG_COLUMN_THRESHOLD {
+                score += cfg.long_column_bonus;
+            }
+            if move_enables_chain(engine, m, col) {
+                score += cfg.chain_bonus;
+            }
         }
         Move::DeckPile(c) | Move::StackPile(c) => {
+            if c.is_king() && has_empty {
+                score += cfg.empty_column_bonus;
+            }
             if c.is_king() && engine.state().get_hidden().len(6) == 0 {
                 score += cfg.keep_king_bonus;
             }

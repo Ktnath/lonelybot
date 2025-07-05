@@ -12,7 +12,7 @@ from utils import parse_hidden
 def main():
     game = GameState()
     cfg = HeuristicConfigPy(
-        None, None, None, None, None
+        None, None, None, None, None, None, None
     )
     while True:
         cmd = input("lonelybot> ").strip()
@@ -52,6 +52,8 @@ def main():
                 weights.get("early_foundation_penalty"),
                 weights.get("keep_king_bonus"),
                 weights.get("deadlock_penalty"),
+                weights.get("long_column_bonus"),
+                weights.get("chain_bonus"),
             )
             print("heuristics loaded", path)
             continue

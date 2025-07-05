@@ -38,6 +38,10 @@ pub struct HeuristicConfigPy {
     pub keep_king_bonus: i32,
     #[pyo3(get, set)]
     pub deadlock_penalty: i32,
+    #[pyo3(get, set)]
+    pub long_column_bonus: i32,
+    #[pyo3(get, set)]
+    pub chain_bonus: i32,
 }
 
 #[pymethods]
@@ -49,6 +53,8 @@ impl HeuristicConfigPy {
         early_foundation_penalty: Option<i32>,
         keep_king_bonus: Option<i32>,
         deadlock_penalty: Option<i32>,
+        long_column_bonus: Option<i32>,
+        chain_bonus: Option<i32>,
     ) -> Self {
         let d = HeuristicConfig::default();
         Self {
@@ -57,6 +63,8 @@ impl HeuristicConfigPy {
             early_foundation_penalty: early_foundation_penalty.unwrap_or(d.early_foundation_penalty),
             keep_king_bonus: keep_king_bonus.unwrap_or(d.keep_king_bonus),
             deadlock_penalty: deadlock_penalty.unwrap_or(d.deadlock_penalty),
+            long_column_bonus: long_column_bonus.unwrap_or(d.long_column_bonus),
+            chain_bonus: chain_bonus.unwrap_or(d.chain_bonus),
         }
     }
 }
@@ -69,6 +77,8 @@ impl From<&HeuristicConfigPy> for HeuristicConfig {
             early_foundation_penalty: p.early_foundation_penalty,
             keep_king_bonus: p.keep_king_bonus,
             deadlock_penalty: p.deadlock_penalty,
+            long_column_bonus: p.long_column_bonus,
+            chain_bonus: p.chain_bonus,
         }
     }
 }
