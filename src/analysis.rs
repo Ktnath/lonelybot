@@ -184,7 +184,7 @@ fn evaluate_move(
         _ => 1.0,
     };
 
-    ((score as f64) * prob + 0.5).round() as i32
+    ((score as f64) * prob + 0.5) as i32
 }
 
 fn count_empty_columns(game: &Solitaire) -> usize {
@@ -236,6 +236,22 @@ pub fn ranked_moves(
         .collect();
     res.sort_by_key(|m| -m.heuristic_score);
     res
+}
+
+/// Convenience wrapper that builds the engine from a partial state using
+/// weighted probabilities.
+#[must_use]
+pub fn ranked_moves_from_partial(
+    state: &PartialState,
+    style: PlayStyle,
+    cfg: &HeuristicConfig,
+) -> Vec<RankedMove> {
+    let probs = state.column_probabilities();
+    let mut rng = SmallRng::seed_from_u64(0);
+    let filled = state.fill_unknowns_weighted(&probs, &mut rng);
+    let solitaire: Solitaire = (&filled).into();
+    let engine: SolitaireEngine<FullPruner> = solitaire.into();
+    ranked_moves(&engine, state, style, cfg)
 }
 
 /// Analyze a partial state and return basic metrics.

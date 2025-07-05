@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 
-use lonelybot::analysis::{ranked_moves, analyze_state, HeuristicConfig, PlayStyle, StateAnalysis};
+use lonelybot::analysis::{ranked_moves, ranked_moves_from_partial, analyze_state, HeuristicConfig, PlayStyle, StateAnalysis};
 use lonelybot::game_theory::best_move_mcts;
 use lonelybot::partial::{PartialState, PartialColumn};
 use lonelybot::engine::SolitaireEngine;
@@ -186,13 +186,8 @@ fn ranked_moves_py(
     style: &str,
     cfg: Option<&HeuristicConfigPy>,
 ) -> PyResult<Vec<PyObject>> {
-    let probs = state.state.column_probabilities();
-    let mut rng = SmallRng::seed_from_u64(0);
-    let g = state.state.fill_unknowns_weighted(&probs, &mut rng);
-    let solitaire: lonelybot::state::Solitaire = (&g).into();
-    let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let moves = ranked_moves(&engine, &state.state, get_style(style), &cfg);
+    let moves = ranked_moves_from_partial(&state.state, get_style(style), &cfg);
 
     Python::with_gil(|py| {
         let mut res = Vec::new();
