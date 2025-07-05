@@ -27,6 +27,54 @@ impl MovePy {
 
 #[pyclass]
 #[derive(Clone)]
+pub struct HeuristicConfigPy {
+    #[pyo3(get, set)]
+    pub reveal_bonus: i32,
+    #[pyo3(get, set)]
+    pub empty_column_bonus: i32,
+    #[pyo3(get, set)]
+    pub early_foundation_penalty: i32,
+    #[pyo3(get, set)]
+    pub keep_king_bonus: i32,
+    #[pyo3(get, set)]
+    pub deadlock_penalty: i32,
+}
+
+#[pymethods]
+impl HeuristicConfigPy {
+    #[new]
+    fn new(
+        reveal_bonus: Option<i32>,
+        empty_column_bonus: Option<i32>,
+        early_foundation_penalty: Option<i32>,
+        keep_king_bonus: Option<i32>,
+        deadlock_penalty: Option<i32>,
+    ) -> Self {
+        let d = HeuristicConfig::default();
+        Self {
+            reveal_bonus: reveal_bonus.unwrap_or(d.reveal_bonus),
+            empty_column_bonus: empty_column_bonus.unwrap_or(d.empty_column_bonus),
+            early_foundation_penalty: early_foundation_penalty.unwrap_or(d.early_foundation_penalty),
+            keep_king_bonus: keep_king_bonus.unwrap_or(d.keep_king_bonus),
+            deadlock_penalty: deadlock_penalty.unwrap_or(d.deadlock_penalty),
+        }
+    }
+}
+
+impl From<&HeuristicConfigPy> for HeuristicConfig {
+    fn from(p: &HeuristicConfigPy) -> Self {
+        Self {
+            reveal_bonus: p.reveal_bonus,
+            empty_column_bonus: p.empty_column_bonus,
+            early_foundation_penalty: p.early_foundation_penalty,
+            keep_king_bonus: p.keep_king_bonus,
+            deadlock_penalty: p.deadlock_penalty,
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
 pub struct GameState {
     state: PartialState,
 }
@@ -103,29 +151,44 @@ fn get_style(style: &str) -> PlayStyle {
 }
 
 #[pyfunction]
-fn ranked_moves_py(state: &GameState, style: &str) -> PyResult<Vec<(MovePy, i32)>> {
+fn ranked_moves_py(
+    state: &GameState,
+    style: &str,
+    cfg: Option<&HeuristicConfigPy>,
+) -> PyResult<Vec<(MovePy, i32)>> {
     let mut rng = SmallRng::seed_from_u64(0);
     let g = state.state.fill_unknowns_randomly(&mut rng);
     let engine: SolitaireEngine<FullPruner> = g.into();
-    let moves = ranked_moves(&engine, get_style(style), &HeuristicConfig::default());
+    let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
+    let moves = ranked_moves(&engine, get_style(style), &cfg);
     Ok(moves.into_iter().map(|m| (MovePy{mv:m.mv}, m.heuristic_score)).collect())
 }
 
 #[pyfunction]
-fn best_move_py(state: &GameState, style: &str) -> PyResult<Option<MovePy>> {
+fn best_move_py(
+    state: &GameState,
+    style: &str,
+    cfg: Option<&HeuristicConfigPy>,
+) -> PyResult<Option<MovePy>> {
     let mut rng = SmallRng::seed_from_u64(0);
     let g = state.state.fill_unknowns_randomly(&mut rng);
     let engine: SolitaireEngine<FullPruner> = g.into();
-    let mv = ranked_moves(&engine, get_style(style), &HeuristicConfig::default()).into_iter().next();
+    let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
+    let mv = ranked_moves(&engine, get_style(style), &cfg).into_iter().next();
     Ok(mv.map(|m| MovePy{mv:m.mv}))
 }
 
 #[pyfunction]
-fn best_move_mcts_py(state: &GameState, style: &str) -> PyResult<Option<MovePy>> {
+fn best_move_mcts_py(
+    state: &GameState,
+    style: &str,
+    cfg: Option<&HeuristicConfigPy>,
+) -> PyResult<Option<MovePy>> {
     let mut rng = SmallRng::seed_from_u64(0);
     let mut g = state.state.fill_unknowns_randomly(&mut rng);
     let mut engine: SolitaireEngine<FullPruner> = g.into();
-    let mv = best_move_mcts(&mut engine, get_style(style), &mut rng);
+    let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
+    let mv = best_move_mcts(&mut engine, get_style(style), &cfg, &mut rng);
     Ok(mv.map(|m| MovePy{mv:m.mv}))
 }
 
@@ -151,6 +214,7 @@ fn analyze_state_py(state: &GameState) -> PyResult<(usize, Vec<String>, usize, u
 fn lonelybot_py(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<GameState>()?;
     m.add_class::<MovePy>()?;
+    m.add_class::<HeuristicConfigPy>()?;
     m.add_function(wrap_pyfunction!(ranked_moves_py, m)?)?;
     m.add_function(wrap_pyfunction!(best_move_py, m)?)?;
     m.add_function(wrap_pyfunction!(best_move_mcts_py, m)?)?;

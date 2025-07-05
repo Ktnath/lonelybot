@@ -1,17 +1,25 @@
 """Lonelybot interactive CLI"""
 import json
-from lonelybot_py import GameState, ranked_moves_py, column_probabilities_py
+from lonelybot_py import (
+    GameState,
+    HeuristicConfigPy,
+    ranked_moves_py,
+    column_probabilities_py,
+)
 from utils import parse_hidden
 
 
 def main():
     game = GameState()
+    cfg = HeuristicConfigPy(
+        None, None, None, None, None
+    )
     while True:
         cmd = input("lonelybot> ").strip()
         if cmd == "quit":
             break
         if cmd == "best":
-            moves = ranked_moves_py(game, "neutral")
+            moves = ranked_moves_py(game, "neutral", cfg)
             if moves:
                 print(moves[0])
             continue
@@ -34,8 +42,35 @@ def main():
             game = GameState.from_json(json.dumps(data))
             print("loaded", path)
             continue
+        if cmd.startswith("weights"):
+            _, path = cmd.split(maxsplit=1)
+            with open(path) as f:
+                weights = json.load(f)
+            cfg = HeuristicConfigPy(
+                weights.get("reveal_bonus"),
+                weights.get("empty_column_bonus"),
+                weights.get("early_foundation_penalty"),
+                weights.get("keep_king_bonus"),
+                weights.get("deadlock_penalty"),
+            )
+            print("heuristics loaded", path)
+            continue
+        if cmd.startswith("set"):
+            try:
+                _, name, value = cmd.split(maxsplit=2)
+            except ValueError:
+                print("usage: set <field> <value>")
+                continue
+            if not hasattr(cfg, name):
+                print("unknown field")
+                continue
+            setattr(cfg, name, int(value))
+            print(f"{name} set to {value}")
+            continue
         if cmd == "help":
-            print("commands: best, prob, custom <file>, quit")
+            print(
+                "commands: best, prob, custom <file>, weights <file>, set <field> <value>, quit"
+            )
             continue
 
 

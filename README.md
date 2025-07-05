@@ -48,6 +48,15 @@ This installs a `lonelybot_py` module providing `GameState`, `Move`,
 `analyze_state`.  The helper `python/utils.py` includes a `parse_hidden()`
 function for loading JSON states with `"unknown"` or `-1` values.
 
+Heuristic weights can be customised through the `HeuristicConfig` class and
+passed to `ranked_moves`, `best_move` or `best_move_mcts`:
+
+```python
+from lonelybot_py import GameState, HeuristicConfigPy, ranked_moves_py
+cfg = HeuristicConfigPy(reveal_bonus=10)
+print(ranked_moves_py(GameState(), "neutral", cfg)[0])
+```
+
 ## Seed
 There are 7 seed types
 - ``default``: using Rust rng
