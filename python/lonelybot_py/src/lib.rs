@@ -40,6 +40,10 @@ pub struct HeuristicConfigPy {
     #[pyo3(get, set)]
     pub deadlock_penalty: i32,
     #[pyo3(get, set)]
+    pub long_column_bonus: i32,
+    #[pyo3(get, set)]
+    pub chain_bonus: i32,
+    #[pyo3(get, set)]
     pub aggressive_coef: i32,
     #[pyo3(get, set)]
     pub conservative_coef: i32,
@@ -56,6 +60,8 @@ impl HeuristicConfigPy {
         early_foundation_penalty: Option<i32>,
         keep_king_bonus: Option<i32>,
         deadlock_penalty: Option<i32>,
+        long_column_bonus: Option<i32>,
+        chain_bonus: Option<i32>,
         aggressive_coef: Option<i32>,
         conservative_coef: Option<i32>,
         neutral_coef: Option<i32>,
@@ -67,6 +73,8 @@ impl HeuristicConfigPy {
             early_foundation_penalty: early_foundation_penalty.unwrap_or(d.early_foundation_penalty),
             keep_king_bonus: keep_king_bonus.unwrap_or(d.keep_king_bonus),
             deadlock_penalty: deadlock_penalty.unwrap_or(d.deadlock_penalty),
+            long_column_bonus: long_column_bonus.unwrap_or(d.long_column_bonus),
+            chain_bonus: chain_bonus.unwrap_or(d.chain_bonus),
             aggressive_coef: aggressive_coef.unwrap_or(d.aggressive_coef),
             conservative_coef: conservative_coef.unwrap_or(d.conservative_coef),
             neutral_coef: neutral_coef.unwrap_or(d.neutral_coef),
@@ -82,6 +90,8 @@ impl From<&HeuristicConfigPy> for HeuristicConfig {
             early_foundation_penalty: p.early_foundation_penalty,
             keep_king_bonus: p.keep_king_bonus,
             deadlock_penalty: p.deadlock_penalty,
+            long_column_bonus: p.long_column_bonus,
+            chain_bonus: p.chain_bonus,
             aggressive_coef: p.aggressive_coef,
             conservative_coef: p.conservative_coef,
             neutral_coef: p.neutral_coef,
@@ -116,7 +126,11 @@ fn parse_json_state(txt: &str) -> PyResult<PartialState> {
         for (i,col) in cols.iter().enumerate().take(7) {
             if let Some(hid) = col.get("hidden").and_then(|h| h.as_array()) {
                 columns[i].hidden = hid.iter().map(|c| {
-                    if c == "unknown" || c.as_i64()==Some(-1) { None } else { c.as_str().map(|s| parse_card(s).unwrap()).map(Some).unwrap_or(None) }
+                    if c == "unknown" || c.as_i64() == Some(-1) {
+                        None
+                    } else {
+                        c.as_str().map(|s| parse_card(s).unwrap()).map(Some).unwrap_or(None)
+                    }
                 }).collect();
             }
             if let Some(vis) = col.get("visible").and_then(|h| h.as_array()) {
@@ -131,7 +145,7 @@ fn parse_json_state(txt: &str) -> PyResult<PartialState> {
     let mut deck = Vec::new();
     if let Some(d) = v.get("deck").and_then(|d| d.as_array()) {
         for card in d {
-            if card == "unknown" || card.as_i64()==Some(-1) {
+            if card == "unknown" || card.as_i64() == Some(-1) {
                 deck.push(None);
             } else if let Some(s) = card.as_str() {
                 deck.push(Some(parse_card(s)?));
@@ -212,7 +226,7 @@ fn best_move_py(
     let mv = ranked_moves(&engine, &state.state, get_style(style), &cfg)
         .into_iter()
         .next();
-    Ok(mv.map(|m| MovePy{mv:m.mv}))
+    Ok(mv.map(|m| MovePy { mv: m.mv }))
 }
 
 #[pyfunction]

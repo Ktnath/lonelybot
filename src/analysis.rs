@@ -17,6 +17,8 @@ use alloc::collections::BTreeSet;
 extern crate alloc;
 use alloc::vec::Vec;
 
+const LONG_COLUMN_THRESHOLD: u8 = 3;
+
 /// Player style used to influence the evaluation of moves.
 #[derive(Clone, Copy, Debug)]
 pub enum PlayStyle {
@@ -33,6 +35,8 @@ pub struct HeuristicConfig {
     pub early_foundation_penalty: i32,
     pub keep_king_bonus: i32,
     pub deadlock_penalty: i32,
+    pub long_column_bonus: i32,
+    pub chain_bonus: i32,
     pub aggressive_coef: i32,
     pub conservative_coef: i32,
     pub neutral_coef: i32,
@@ -46,6 +50,8 @@ impl Default for HeuristicConfig {
             early_foundation_penalty: -3,
             keep_king_bonus: 1,
             deadlock_penalty: -10,
+            long_column_bonus: 3,
+            chain_bonus: 2,
             aggressive_coef: 1,
             conservative_coef: 1,
             neutral_coef: 1,
@@ -68,19 +74,33 @@ pub struct RankedMove {
 /// Basic information about a partial game state.
 #[derive(Clone, Debug)]
 pub struct StateAnalysis {
-    /// Number of cards that are still unknown.
     pub unknown_cards: usize,
-    /// Cards that are not present in the current information set.
     pub remaining_cards: Vec<Card>,
-    /// Number of tableau columns where the top card cannot currently move.
     pub blocked_columns: usize,
-    /// Number of legal moves in a sampled filled state.
     pub mobility: usize,
-    /// Heuristic estimation of deadlock risk in \[0.0,1.0\].
     pub deadlock_risk: f64,
 }
 
-/// Evaluate a move using very small heuristics.
+fn move_enables_chain(engine: &SolitaireEngine<FullPruner>, m: Move, col: u8) -> bool {
+    let mut tmp: SolitaireEngine<FullPruner> = engine.state().clone().into();
+    if !tmp.do_move(m) {
+        return false;
+    }
+    let next = tmp.state().get_hidden().peek(col).copied();
+    let moves = tmp.list_moves_dom();
+    if let Some(card) = next {
+        moves.iter().any(|mv| match *mv {
+            Move::DeckPile(c)
+            | Move::DeckStack(c)
+            | Move::PileStack(c)
+            | Move::StackPile(c)
+            | Move::Reveal(c) => c == card,
+        })
+    } else {
+        false
+    }
+}
+
 fn evaluate_move(
     style: PlayStyle,
     engine: &SolitaireEngine<FullPruner>,
@@ -94,125 +114,60 @@ fn evaluate_move(
         PlayStyle::Neutral => cfg.neutral_coef,
     };
 
-    let mut score = 0;
-
-    // Appliquer le coup dans une copie
-    let mut sim_engine = engine.state().clone().into();
-    sim_engine.do_move(m);
-
-    // Heuristique : carte révélée ?
-    let revealed = sim_engine.last_revealed_card();
-    if revealed.is_some() {
-        score += cfg.reveal_bonus;
-    }
-
-    // Heuristique : colonne vidée ?
-    if let Some((from_col, _)) = m.source_column_index() {
-        if engine.state().columns[from_col].is_empty()
-            && !sim_engine.state().columns[from_col].is_empty()
-        {
-            score += cfg.empty_column_bonus;
-        }
-    }
-
-    // Heuristique : roi préservé ?
-    if let Some(card) = revealed {
-        if card.rank() == 12 {
-            score += cfg.keep_king_bonus;
-        }
-    }
-
-    // Heuristique : early foundation penalty
-    if sim_engine.state().foundations.iter().any(|&v| v > 1) {
-        score -= cfg.early_foundation_penalty;
-    }
-
-    // Heuristique : blocage (deadlock)
-    if sim_engine.list_moves_dom().is_empty() {
-        score -= cfg.deadlock_penalty;
-    }
-
-    score * coeff
-}
-
+    let hidden = engine.state().get_hidden();
+    let has_empty = (0..N_PILES).any(|i| hidden.len(i as u8) == 0);
     let mut score = 0;
     match m {
-        Move::Reveal(_) => score += cfg.reveal_bonus * coeff,
+        Move::Reveal(c) => {
+            score += cfg.reveal_bonus;
+            let col = hidden.find(c);
+            let down = hidden.len(col).saturating_sub(1);
+            if down > LONG_COLUMN_THRESHOLD {
+                score += cfg.long_column_bonus;
+            }
+            if has_empty && c.is_king() {
+                score += cfg.empty_column_bonus;
+            }
+            if move_enables_chain(engine, m, col) {
+                score += cfg.chain_bonus;
+            }
+        }
         Move::PileStack(c) => {
             if c.rank() < 5 {
                 score += cfg.early_foundation_penalty * coeff;
             }
+            let col = hidden.find(c);
+            let down = hidden.len(col).saturating_sub(1);
+            if down > 0 && down > LONG_COLUMN_THRESHOLD {
+                score += cfg.long_column_bonus;
+            }
+            if move_enables_chain(engine, m, col) {
+                score += cfg.chain_bonus;
+            }
         }
         Move::DeckPile(c) | Move::StackPile(c) => {
-            if c.is_king() && engine.state().get_hidden().len(6) == 0 {
+            if c.is_king() && has_empty {
+                score += cfg.empty_column_bonus;
+            }
+            if c.is_king() && hidden.len(6) == 0 {
                 score += cfg.keep_king_bonus * coeff;
             }
         }
         _ => {}
     }
-fn evaluate_move(
-    style: PlayStyle,
-    engine: &SolitaireEngine<FullPruner>,
-    state: &PartialState,
-    m: Move,
-    cfg: &HeuristicConfig,
-) -> i32 {
-    let coeff = match style {
-        PlayStyle::Aggressive => cfg.aggressive_coef,
-        PlayStyle::Conservative => cfg.conservative_coef,
-        PlayStyle::Neutral => cfg.neutral_coef,
-    };
 
-    let mut score = 0;
-
-    // Appliquer le coup dans une copie
-    let mut sim_engine = engine.state().clone().into();
-    sim_engine.do_move(m);
-
-    // Heuristique : carte révélée ?
-    let revealed = sim_engine.last_revealed_card();
-    if revealed.is_some() {
-        score += cfg.reveal_bonus;
-    }
-
-    // Heuristique : colonne vidée ?
-    if let Some((from_col, _)) = m.source_column_index() {
-        if engine.state().columns[from_col].is_empty()
-            && !sim_engine.state().columns[from_col].is_empty()
-        {
-            score += cfg.empty_column_bonus;
-        }
-    }
-
-    // Heuristique : roi révélé ?
-    if let Some(card) = revealed {
-        if card.rank() == 12 {
-            score += cfg.keep_king_bonus;
-        }
-    }
-
-    // Heuristique : early foundation penalty
-    if sim_engine.state().foundations.iter().any(|&v| v > 1) {
-        score -= cfg.early_foundation_penalty;
-    }
-
-    // Heuristique : deadlock potentiel ?
-    if sim_engine.list_moves_dom().is_empty() {
-        score -= cfg.deadlock_penalty;
-    }
-
-    // Ajustement par style général
+    // Bonus/penalité par style
     score += match style {
         PlayStyle::Aggressive => 1,
         PlayStyle::Conservative => -1,
         PlayStyle::Neutral => 0,
     };
 
-    // Poids de probabilité si le coup révèle une carte inconnue
+    // Poids de probabilité
     let probabilities = state.column_probabilities();
     let prob = match m {
         Move::Reveal(c) => {
-            let idx = engine.state().get_hidden().find(c) as usize;
+            let idx = hidden.find(c) as usize;
             if state.columns[idx].hidden.iter().any(|h| *h == Some(c)) {
                 1.0
             } else {
@@ -229,10 +184,8 @@ fn evaluate_move(
         _ => 1.0,
     };
 
-    // Score pondéré par la probabilité d'occurrence réelle
     ((score as f64) * prob + 0.5).round() as i32
 }
-
 
 fn count_empty_columns(game: &Solitaire) -> usize {
     let piles = game.compute_visible_piles();
@@ -259,28 +212,25 @@ pub fn ranked_moves(
     let mut res: Vec<RankedMove> = moves
         .iter()
         .map(|&m| {
-let mut st = engine.state().clone();
-let base_empty = count_empty_columns(engine.state());
-let (_, (_, extra)) = st.do_move(m);
-let columns_freed = count_empty_columns(&st).saturating_sub(base_empty);
+            let mut st = engine.state().clone();
+            let (_, (_, extra)) = st.do_move(m);
+            let columns_freed = count_empty_columns(&st).saturating_sub(base_empty);
 
-let revealed_cards = match extra {
-    ExtraInfo::Card(c) => alloc::vec![c],
-    _ => Vec::new(),
-};
+            let revealed_cards = match extra {
+                ExtraInfo::Card(c) => alloc::vec![c],
+                _ => Vec::new(),
+            };
 
-let (heuristic_score, simulation_score) = evaluate_move(style, engine, state, m, cfg);
+            let heuristic_score = evaluate_move(style, engine, state, m, cfg);
 
-RankedMove {
-    mv: m,
-    heuristic_score,
-    simulation_score,
-    will_block: false,
-    revealed_cards,
-    columns_freed,
-    win_rate: 0.0, // sera mis à jour plus tard par playouts
-}
-
+            RankedMove {
+                mv: m,
+                heuristic_score,
+                simulation_score: 0,
+                will_block: false,
+                revealed_cards,
+                columns_freed,
+                win_rate: 0.0,
             }
         })
         .collect();
@@ -319,14 +269,12 @@ pub fn analyze_state(state: &PartialState) -> StateAnalysis {
         .map(Card::from_mask_index)
         .collect();
 
-    // Compute mobility using a deterministic fill of unknowns
     let mut rng = SmallRng::seed_from_u64(0);
     let filled = state.fill_unknowns_randomly(&mut rng);
     let solitaire: crate::state::Solitaire = (&filled).into();
     let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let mobility = engine.list_moves_dom().len();
 
-    // Blocked columns heuristics
     let mut blocked = 0usize;
     for (i, col) in state.columns.iter().enumerate() {
         let top = col.visible.last().copied();
@@ -370,4 +318,3 @@ pub fn analyze_state(state: &PartialState) -> StateAnalysis {
         deadlock_risk,
     }
 }
-

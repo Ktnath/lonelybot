@@ -12,26 +12,39 @@ from utils import parse_hidden
 def main():
     game = GameState()
     cfg = HeuristicConfigPy(
-        None, None, None, None, None, None, None, None
+        None, None, None, None, None,
+        None, None,  # long_column_bonus, chain_bonus
+        None, None, None  # aggressive_coef, conservative_coef, neutral_coef
     )
+
     while True:
         cmd = input("lonelybot> ").strip()
         if cmd == "quit":
             break
-        if cmd == "best":
+
+        elif cmd == "best":
             moves = ranked_moves_py(game, "neutral", cfg)
             if moves:
                 print(moves[0])
+            else:
+                print("No moves available.")
             continue
-        if cmd == "prob":
+
+        elif cmd == "prob":
             cols = column_probabilities_py(game)
             for i, col in enumerate(cols, 1):
                 print(f"Column {i}:")
                 for card, prob in col:
                     print(f"  {card}: {prob:.2%}")
             continue
-        if cmd.startswith("custom"):
-            _, path = cmd.split(maxsplit=1)
+
+        elif cmd.startswith("custom"):
+            try:
+                _, path = cmd.split(maxsplit=1)
+            except ValueError:
+                print("Usage: custom <file>")
+                continue
+
             with open(path) as f:
                 data = json.load(f)
             if "columns" in data:
@@ -42,38 +55,58 @@ def main():
             game = GameState.from_json(json.dumps(data))
             print("loaded", path)
             continue
-        if cmd.startswith("weights"):
-            _, path = cmd.split(maxsplit=1)
+
+        elif cmd.startswith("weights"):
+            try:
+                _, path = cmd.split(maxsplit=1)
+            except ValueError:
+                print("Usage: weights <file>")
+                continue
+
             with open(path) as f:
                 weights = json.load(f)
+
             cfg = HeuristicConfigPy(
                 weights.get("reveal_bonus"),
                 weights.get("empty_column_bonus"),
                 weights.get("early_foundation_penalty"),
                 weights.get("keep_king_bonus"),
                 weights.get("deadlock_penalty"),
+                weights.get("long_column_bonus"),
+                weights.get("chain_bonus"),
                 weights.get("aggressive_coef"),
                 weights.get("conservative_coef"),
                 weights.get("neutral_coef"),
             )
             print("heuristics loaded", path)
             continue
-        if cmd.startswith("set"):
+
+        elif cmd.startswith("set"):
             try:
                 _, name, value = cmd.split(maxsplit=2)
             except ValueError:
-                print("usage: set <field> <value>")
+                print("Usage: set <field> <value>")
                 continue
+
             if not hasattr(cfg, name):
-                print("unknown field")
+                print("Unknown field:", name)
                 continue
-            setattr(cfg, name, int(value))
+            try:
+                setattr(cfg, name, int(value))
+            except Exception as e:
+                print(f"Error setting field: {e}")
+                continue
             print(f"{name} set to {value}")
             continue
-        if cmd == "help":
+
+        elif cmd == "help":
             print(
                 "commands: best, prob, custom <file>, weights <file>, set <field> <value>, quit"
             )
+            continue
+
+        else:
+            print("Unknown command. Type 'help' for list.")
             continue
 
 
