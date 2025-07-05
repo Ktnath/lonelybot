@@ -172,12 +172,14 @@ fn ranked_moves_py(
     style: &str,
     cfg: Option<&HeuristicConfigPy>,
 ) -> PyResult<Vec<PyObject>> {
+    let probs = state.state.column_probabilities();
     let mut rng = SmallRng::seed_from_u64(0);
-    let g = state.state.fill_unknowns_randomly(&mut rng);
+    let g = state.state.fill_unknowns_weighted(&probs, &mut rng);
     let solitaire: lonelybot::state::Solitaire = (&g).into();
     let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let moves = ranked_moves(&engine, get_style(style), &cfg);
+    let moves = ranked_moves(&engine, &state.state, get_style(style), &cfg);
+
     Python::with_gil(|py| {
         let mut res = Vec::new();
         for m in moves {
@@ -207,7 +209,9 @@ fn best_move_py(
     let solitaire: lonelybot::state::Solitaire = (&g).into();
     let engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let mv = ranked_moves(&engine, get_style(style), &cfg).into_iter().next();
+    let mv = ranked_moves(&engine, &state.state, get_style(style), &cfg)
+        .into_iter()
+        .next();
     Ok(mv.map(|m| MovePy{mv:m.mv}))
 }
 
@@ -218,11 +222,9 @@ fn best_move_mcts_py(
     cfg: Option<&HeuristicConfigPy>,
 ) -> PyResult<Option<PyObject>> {
     let mut rng = SmallRng::seed_from_u64(0);
-    let mut g = state.state.fill_unknowns_randomly(&mut rng);
-    let solitaire: lonelybot::state::Solitaire = (&g).into();
-    let mut engine: SolitaireEngine<FullPruner> = solitaire.into();
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let mv = best_move_mcts(&mut engine, get_style(style), &cfg, &mut rng);
+    let mv = best_move_mcts(&state.state, get_style(style), &cfg, &mut rng);
+
     Python::with_gil(|py| {
         Ok(mv.map(|m| {
             let dict = PyDict::new(py);
