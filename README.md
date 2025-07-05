@@ -56,6 +56,8 @@ from lonelybot_py import GameState, HeuristicConfigPy, ranked_moves_py
 cfg = HeuristicConfigPy(reveal_bonus=10)
 print(ranked_moves_py(GameState(), "neutral", cfg)[0])
 ```
+Style profiles can also be tuned with `aggressive_coef`, `conservative_coef` and
+`neutral_coef` fields in `HeuristicConfigPy`.
 
 ## Seed
 There are 7 seed types

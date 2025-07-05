@@ -39,6 +39,12 @@ pub struct HeuristicConfigPy {
     pub keep_king_bonus: i32,
     #[pyo3(get, set)]
     pub deadlock_penalty: i32,
+    #[pyo3(get, set)]
+    pub aggressive_coef: i32,
+    #[pyo3(get, set)]
+    pub conservative_coef: i32,
+    #[pyo3(get, set)]
+    pub neutral_coef: i32,
 }
 
 #[pymethods]
@@ -50,6 +56,9 @@ impl HeuristicConfigPy {
         early_foundation_penalty: Option<i32>,
         keep_king_bonus: Option<i32>,
         deadlock_penalty: Option<i32>,
+        aggressive_coef: Option<i32>,
+        conservative_coef: Option<i32>,
+        neutral_coef: Option<i32>,
     ) -> Self {
         let d = HeuristicConfig::default();
         Self {
@@ -58,6 +67,9 @@ impl HeuristicConfigPy {
             early_foundation_penalty: early_foundation_penalty.unwrap_or(d.early_foundation_penalty),
             keep_king_bonus: keep_king_bonus.unwrap_or(d.keep_king_bonus),
             deadlock_penalty: deadlock_penalty.unwrap_or(d.deadlock_penalty),
+            aggressive_coef: aggressive_coef.unwrap_or(d.aggressive_coef),
+            conservative_coef: conservative_coef.unwrap_or(d.conservative_coef),
+            neutral_coef: neutral_coef.unwrap_or(d.neutral_coef),
         }
     }
 }
@@ -70,6 +82,9 @@ impl From<&HeuristicConfigPy> for HeuristicConfig {
             early_foundation_penalty: p.early_foundation_penalty,
             keep_king_bonus: p.keep_king_bonus,
             deadlock_penalty: p.deadlock_penalty,
+            aggressive_coef: p.aggressive_coef,
+            conservative_coef: p.conservative_coef,
+            neutral_coef: p.neutral_coef,
         }
     }
 }
