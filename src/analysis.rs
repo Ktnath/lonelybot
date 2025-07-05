@@ -234,11 +234,17 @@ pub fn ranked_moves(
 
             let heuristic_score = evaluate_move(style, engine, state, m, cfg);
 
+            // Determine if this move leaves the game with no legal follow-up
+            // moves. This information is surfaced so clients can avoid moves
+            // that dead-end the game state.
+            let tmp_engine: SolitaireEngine<FullPruner> = st.clone().into();
+            let will_block = tmp_engine.list_moves_dom().is_empty();
+
             RankedMove {
                 mv: m,
                 heuristic_score,
                 simulation_score: 0,
-                will_block: false,
+                will_block,
                 revealed_cards,
                 columns_freed,
                 win_rate: 0.0,
