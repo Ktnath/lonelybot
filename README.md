@@ -14,7 +14,7 @@ Lonelybot
 - **Expert heuristics** configurable with `HeuristicConfig` and used in `ranked_moves` and Monte Carlo search.
 - **Ranked move output** with heuristic and simulation scores and a `will_block` flag indicating if a move leaves no legal follow-up.
 - **State analysis** via `analyze_state` giving unknown count, remaining cards, mobility and deadlock risk.
-- **MCTS based solver** available through `best_move_mcts`.
+- **MCTS based solver** available through `best_move_mcts` which now accepts `n_playouts` and `max_depth`.
 - **Partial JSON loading** where `"unknown"` or `-1` values denote hidden cards.
 - **Python bindings** exposing the above features for scripting.
 
@@ -55,6 +55,13 @@ passed to `ranked_moves`, `best_move` or `best_move_mcts`:
 from lonelybot_py import GameState, HeuristicConfigPy, ranked_moves_py
 cfg = HeuristicConfigPy(reveal_bonus=10)
 print(ranked_moves_py(GameState(), "neutral", cfg)[0])
+```
+`best_move_mcts` can be used similarly and takes the number of playouts and
+maximum search depth:
+
+```python
+from lonelybot_py import best_move_mcts_py
+print(best_move_mcts_py(GameState(), "neutral", cfg, 9, 10))
 ```
 Style profiles can also be tuned with `aggressive_coef`, `conservative_coef` and
 `neutral_coef` fields in `HeuristicConfigPy`. These coefficients multiply the
