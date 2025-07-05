@@ -12,7 +12,7 @@ Lonelybot
 - **Bayesian inference** using `column_probabilities` to estimate hidden cards.
 - **Strategic play styles** through the `PlayStyle` enum (`Conservative`, `Neutral`, `Aggressive`).
 - **Expert heuristics** configurable with `HeuristicConfig` and used in `ranked_moves` and Monte Carlo search.
-- **Ranked move output** with heuristic and simulation scores plus blocking status.
+- **Ranked move output** with heuristic and simulation scores and a `will_block` flag indicating if a move leaves no legal follow-up.
 - **State analysis** via `analyze_state` giving unknown count, remaining cards, mobility and deadlock risk.
 - **MCTS based solver** available through `best_move_mcts`.
 - **Partial JSON loading** where `"unknown"` or `-1` values denote hidden cards.
