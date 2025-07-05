@@ -34,6 +34,7 @@ pub struct HeuristicConfig {
     pub empty_column_bonus: i32,
     pub early_foundation_penalty: i32,
     pub keep_king_bonus: i32,
+    /// Penalty applied when a move leaves the engine with no mobility.
     pub deadlock_penalty: i32,
     pub long_column_bonus: i32,
     pub chain_bonus: i32,
@@ -156,6 +157,13 @@ fn evaluate_move(
         _ => {}
     }
 
+    // Penalize moves that immediately lead to no available follow-up moves.
+    // This prevents ranking moves highly if they would dead-end the game state.
+    let mut next: SolitaireEngine<FullPruner> = engine.state().clone().into();
+    if next.do_move(m) && next.list_moves_dom().is_empty() {
+        score += cfg.deadlock_penalty;
+    }
+
     // Bonus/penalité par style
     score += match style {
         PlayStyle::Aggressive => 1,
@@ -184,7 +192,8 @@ fn evaluate_move(
         _ => 1.0,
     };
 
-    ((score as f64) * prob + 0.5).round() as i32
+    // round() may not be available in core for no_std; emulate simple rounding
+    ((score as f64) * prob + 0.5) as i32
 }
 
 fn count_empty_columns(game: &Solitaire) -> usize {
