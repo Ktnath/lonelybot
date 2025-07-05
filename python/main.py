@@ -1,4 +1,15 @@
-"""Lonelybot interactive CLI"""
+"""Lonelybot interactive CLI.
+
+Commands include:
+    best        - heuristic best move
+    mcts <n> <d> - MCTS best move using ``n`` playouts and depth ``d``
+    prob        - show column probabilities
+    custom      - load a custom state
+    weights     - load heuristic weights
+    set         - set heuristic field
+    style       - choose style
+    quit        - exit
+"""
 import json
 from lonelybot_py import (
     GameState,
@@ -32,12 +43,27 @@ def main():
                 print("No moves available.")
             continue
 
-        elif cmd == "mcts":
-            mv = best_move_mcts_py(game, style, cfg)
+        elif cmd.startswith("mcts"):
+            parts = cmd.split()
+            if len(parts) == 1:
+                mv = best_move_mcts_py(game, style, cfg)
+            elif len(parts) == 3:
+                try:
+                    _, n_playouts, depth = parts
+                    n_playouts = int(n_playouts)
+                    depth = int(depth)
+                    mv = best_move_mcts_py(game, style, cfg, n_playouts, depth)
+                except ValueError:
+                    print("Usage: mcts <playouts:int> <depth:int>")
+                    continue
+            else:
+                print("Usage: mcts [<playouts> <depth>]")
+                continue
+
             if mv:
                 print(mv)
             else:
-                print("No moves available.")
+                print("No move found.")
             continue
 
         elif cmd == "prob":
@@ -124,7 +150,7 @@ def main():
 
         elif cmd == "help":
             print(
-                "commands: best, mcts, prob, custom <file>, weights <file>, set <field> <value>, style <type>, quit"
+                "commands: best, mcts <playouts> <depth>, prob, custom <file>, weights <file>, set <field> <value>, style <type>, quit"
             )
             continue
 

@@ -13,6 +13,8 @@ pub fn best_move_mcts<R: Rng>(
     state: &PartialState,
     style: PlayStyle,
     cfg: &HeuristicConfig,
+    n_playouts: usize,
+    max_depth: usize,
     rng: &mut R,
 ) -> Option<RankedMove> {
     let probs = state.column_probabilities();
@@ -28,38 +30,34 @@ pub fn best_move_mcts<R: Rng>(
         let mut wins = 0usize;
 
         // Monte Carlo playouts with weighted unknowns
-        for _ in 0..3 {
+        for _ in 0..n_playouts {
             let filled = state.fill_unknowns_weighted(&probs, rng);
             let solitaire_child: crate::state::Solitaire = (&filled).into();
             let mut child: SolitaireEngine<FullPruner> = solitaire_child.into();
             child.do_move(m.mv);
 
-            let mut score = 0;
-            for _ in 0..3 {
-                let mut tmp: SolitaireEngine<FullPruner> = child.state().clone().into();
-                let mut depth = 0;
-                while depth < 10 {
-                    let list = tmp.list_moves_dom();
-                    if list.is_empty() {
-                        break;
-                    }
-                    let mv = *list.choose(rng).unwrap();
-                    tmp.do_move(mv);
-                    depth += 1;
-                    if tmp.state().is_win() {
-                        wins += 1;
-                        score += 10;
-                        break;
-                    }
+            let mut tmp: SolitaireEngine<FullPruner> = child.state().clone().into();
+            let mut depth = 0usize;
+            while depth < max_depth {
+                let list = tmp.list_moves_dom();
+                if list.is_empty() {
+                    break;
+                }
+                let mv = *list.choose(rng).unwrap();
+                tmp.do_move(mv);
+                depth += 1;
+                if tmp.state().is_win() {
+                    wins += 1;
+                    total += 10.0;
+                    break;
                 }
             }
-            total += score as f64;
         }
 
-        let avg = total / 3.0;
+        let avg = if n_playouts == 0 { 0.0 } else { total / n_playouts as f64 };
         // round() may not be available in core for no_std; emulate simple rounding
         m.simulation_score = (avg + 0.5) as i32;
-        m.win_rate = wins as f64 / 9.0;
+        m.win_rate = if n_playouts == 0 { 0.0 } else { wins as f64 / n_playouts as f64 };
         if let Some((_, best_score)) = &mut best {
             if avg > *best_score {
                 *best_score = avg;
