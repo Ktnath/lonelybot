@@ -44,19 +44,26 @@ def main():
             continue
 
         elif cmd.startswith("mcts"):
-            try:
-                _, n_playouts, depth = cmd.split(maxsplit=2)
-                n_playouts = int(n_playouts)
-                depth = int(depth)
-            except ValueError:
-                print("Usage: mcts <playouts> <max_depth>")
+            parts = cmd.split()
+            if len(parts) == 1:
+                mv = best_move_mcts_py(game, style, cfg)
+            elif len(parts) == 3:
+                try:
+                    _, n_playouts, depth = parts
+                    n_playouts = int(n_playouts)
+                    depth = int(depth)
+                    mv = best_move_mcts_py(game, style, cfg, n_playouts, depth)
+                except ValueError:
+                    print("Usage: mcts <playouts:int> <depth:int>")
+                    continue
+            else:
+                print("Usage: mcts [<playouts> <depth>]")
                 continue
 
-            mv = best_move_mcts_py(game, style, cfg, n_playouts, depth)
             if mv:
                 print(mv)
             else:
-                print("No moves available.")
+                print("No move found.")
             continue
 
         elif cmd == "prob":
