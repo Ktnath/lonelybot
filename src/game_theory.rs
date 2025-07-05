@@ -14,13 +14,13 @@ pub fn best_move_mcts<R: Rng>(
     cfg: &HeuristicConfig,
     rng: &mut R,
 ) -> Option<RankedMove> {
-    let moves = ranked_moves(engine, style, cfg);
+    let mut moves = ranked_moves(engine, style, cfg);
     // perform a very small random playout for each move
-    let mut best: Option<(RankedMove, i32)> = None;
-    for m in moves {
+    let mut best: Option<(RankedMove, f64)> = None;
+    for m in &mut moves {
         let mut child: SolitaireEngine<FullPruner> = engine.state().clone().into();
         child.do_move(m.mv);
-        let mut score = 0;
+        let mut wins = 0usize;
         for _ in 0..3 {
             let mut tmp: SolitaireEngine<FullPruner> = child.state().clone().into();
             let mut depth = 0;
@@ -35,11 +35,13 @@ pub fn best_move_mcts<R: Rng>(
                 tmp.do_move(mv);
                 depth += 1;
                 if tmp.state().is_win() {
-                    score += 10;
+                    wins += 1;
                     break;
                 }
             }
         }
+        m.win_rate = wins as f64 / 3.0;
+        let score = m.win_rate;
         if let Some((_, best_score)) = &mut best {
             if score > *best_score {
                 *best_score = score;
