@@ -1,9 +1,21 @@
-"""Lonelybot interactive CLI"""
+"""Lonelybot interactive CLI.
+
+Commands include:
+    best        - heuristic best move
+    mcts <n> <d> - MCTS best move using ``n`` playouts and depth ``d``
+    prob        - show column probabilities
+    custom      - load a custom state
+    weights     - load heuristic weights
+    set         - set heuristic field
+    style       - choose style
+    quit        - exit
+"""
 import json
 from lonelybot_py import (
     GameState,
     HeuristicConfigPy,
     ranked_moves_py,
+    best_move_mcts_py,
     column_probabilities_py,
 )
 from utils import parse_hidden
@@ -27,6 +39,22 @@ def main():
             moves = ranked_moves_py(game, style, cfg)
             if moves:
                 print(moves[0])
+            else:
+                print("No moves available.")
+            continue
+
+        elif cmd.startswith("mcts"):
+            try:
+                _, n_playouts, depth = cmd.split(maxsplit=2)
+                n_playouts = int(n_playouts)
+                depth = int(depth)
+            except ValueError:
+                print("Usage: mcts <playouts> <max_depth>")
+                continue
+
+            mv = best_move_mcts_py(game, style, cfg, n_playouts, depth)
+            if mv:
+                print(mv)
             else:
                 print("No moves available.")
             continue
@@ -115,7 +143,7 @@ def main():
 
         elif cmd == "help":
             print(
-                "commands: best, prob, custom <file>, weights <file>, set <field> <value>, style <type>, quit"
+                "commands: best, mcts <playouts> <depth>, prob, custom <file>, weights <file>, set <field> <value>, style <type>, quit"
             )
             continue
 

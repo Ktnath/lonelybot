@@ -230,10 +230,19 @@ fn best_move_mcts_py(
     state: &GameState,
     style: &str,
     cfg: Option<&HeuristicConfigPy>,
+    n_playouts: usize,
+    max_depth: usize,
 ) -> PyResult<Option<PyObject>> {
     let mut rng = SmallRng::seed_from_u64(0);
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
-    let mv = best_move_mcts(&state.state, get_style(style), &cfg, &mut rng);
+    let mv = best_move_mcts(
+        &state.state,
+        get_style(style),
+        &cfg,
+        n_playouts,
+        max_depth,
+        &mut rng,
+    );
 
     Python::with_gil(|py| {
         Ok(mv.map(|m| {
