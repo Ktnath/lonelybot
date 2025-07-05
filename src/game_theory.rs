@@ -17,7 +17,9 @@ pub fn best_move_mcts<R: Rng>(
 ) -> Option<RankedMove> {
     let filled = state.fill_unknowns_randomly(rng);
     let solitaire: crate::state::Solitaire = (&filled).into();
-    let mut engine: SolitaireEngine<FullPruner> = solitaire.into();
+
+  let mut engine: SolitaireEngine<FullPruner> = solitaire.into();
+
     let mut moves = ranked_moves(&engine, state, style, cfg);
 
     let probs = state.column_probabilities();
