@@ -11,10 +11,10 @@ use crate::pruning::FullPruner;
 pub fn best_move_mcts<R: Rng>(
     engine: &mut SolitaireEngine<FullPruner>,
     style: PlayStyle,
+    cfg: &HeuristicConfig,
     rng: &mut R,
 ) -> Option<RankedMove> {
-    let cfg = HeuristicConfig::default();
-    let moves = ranked_moves(engine, style, &cfg);
+    let moves = ranked_moves(engine, style, cfg);
     // perform a very small random playout for each move
     let mut best: Option<(RankedMove, i32)> = None;
     for m in moves {
