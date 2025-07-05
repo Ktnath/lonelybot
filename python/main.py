@@ -4,6 +4,7 @@ from lonelybot_py import (
     GameState,
     HeuristicConfigPy,
     ranked_moves_py,
+    best_move_mcts_py,
     column_probabilities_py,
 )
 from utils import parse_hidden
@@ -27,6 +28,14 @@ def main():
             moves = ranked_moves_py(game, style, cfg)
             if moves:
                 print(moves[0])
+            else:
+                print("No moves available.")
+            continue
+
+        elif cmd == "mcts":
+            mv = best_move_mcts_py(game, style, cfg)
+            if mv:
+                print(mv)
             else:
                 print("No moves available.")
             continue
@@ -115,7 +124,7 @@ def main():
 
         elif cmd == "help":
             print(
-                "commands: best, prob, custom <file>, weights <file>, set <field> <value>, style <type>, quit"
+                "commands: best, mcts, prob, custom <file>, weights <file>, set <field> <value>, style <type>, quit"
             )
             continue
 
