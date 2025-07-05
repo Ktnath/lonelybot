@@ -31,6 +31,9 @@ pub struct HeuristicConfig {
     pub early_foundation_penalty: i32,
     pub keep_king_bonus: i32,
     pub deadlock_penalty: i32,
+    pub aggressive_coef: i32,
+    pub conservative_coef: i32,
+    pub neutral_coef: i32,
 }
 
 impl Default for HeuristicConfig {
@@ -41,6 +44,9 @@ impl Default for HeuristicConfig {
             early_foundation_penalty: -3,
             keep_king_bonus: 1,
             deadlock_penalty: -10,
+            aggressive_coef: 1,
+            conservative_coef: 1,
+            neutral_coef: 1,
         }
     }
 }
@@ -71,28 +77,26 @@ pub struct StateAnalysis {
 
 /// Evaluate a move using very small heuristics.
 fn evaluate_move(style: PlayStyle, engine: &SolitaireEngine<FullPruner>, m: Move, cfg: &HeuristicConfig) -> i32 {
+    let coeff = match style {
+        PlayStyle::Aggressive => cfg.aggressive_coef,
+        PlayStyle::Conservative => cfg.conservative_coef,
+        PlayStyle::Neutral => cfg.neutral_coef,
+    };
     let mut score = 0;
     match m {
-        Move::Reveal(_) => score += cfg.reveal_bonus,
+        Move::Reveal(_) => score += cfg.reveal_bonus * coeff,
         Move::PileStack(c) => {
             if c.rank() < 5 {
-                score += cfg.early_foundation_penalty;
+                score += cfg.early_foundation_penalty * coeff;
             }
         }
         Move::DeckPile(c) | Move::StackPile(c) => {
             if c.is_king() && engine.state().get_hidden().len(6) == 0 {
-                score += cfg.keep_king_bonus;
+                score += cfg.keep_king_bonus * coeff;
             }
         }
         _ => {}
     }
-
-    // style modifier
-    score += match style {
-        PlayStyle::Aggressive => 1,
-        PlayStyle::Conservative => -1,
-        PlayStyle::Neutral => 0,
-    };
     score
 }
 
