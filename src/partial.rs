@@ -162,9 +162,9 @@ impl PartialState {
                         .collect();
                     let sum: f64 = weights.iter().sum();
                     let choose = if sum == 0.0 {
-                        rng.gen_range(0..remaining.len())
+                        rng.random_range(0..remaining.len())
                     } else {
-                        let mut r = rng.gen::<f64>() * sum;
+                        let mut r = rng.random::<f64>() * sum;
                         let mut c = 0usize;
                         for (i, w) in weights.iter().enumerate() {
                             if r <= *w {
@@ -186,12 +186,12 @@ impl PartialState {
             if let Some(card) = c.clone() {
                 cards.push(card);
             } else {
-                let idx = rng.gen_range(0..remaining.len());
+                let idx = rng.random_range(0..remaining.len());
                 cards.push(remaining.remove(idx));
             }
         }
         while cards.len() < N_CARDS as usize {
-            let idx = rng.gen_range(0..remaining.len());
+            let idx = rng.random_range(0..remaining.len());
             cards.push(remaining.remove(idx));
         }
         let mut array: CardDeck = [Card::DEFAULT; N_CARDS as usize];

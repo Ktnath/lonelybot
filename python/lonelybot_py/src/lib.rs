@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::wrap_pyfunction;
+use pyo3::Bound;
 
 use lonelybot::analysis::{ranked_moves, ranked_moves_from_partial, analyze_state, HeuristicConfig, PlayStyle, StateAnalysis};
 use lonelybot::game_theory::best_move_mcts;
@@ -197,7 +199,7 @@ fn ranked_moves_py(
     Python::with_gil(|py| {
         let mut res = Vec::new();
         for m in moves {
-            let dict = PyDict::new(py);
+            let dict = PyDict::new_bound(py);
             dict.set_item("move", MovePy { mv: m.mv }.into_py(py))?;
             dict.set_item("heuristic_score", m.heuristic_score)?;
             dict.set_item("simulation_score", m.simulation_score)?;
@@ -230,7 +232,7 @@ fn best_move_py(
     Ok(mv.map(|m| MovePy { mv: m.mv }))
 }
 
-#[pyfunction]
+#[pyfunction(signature = (state, style, cfg=None, n_playouts, max_depth))]
 fn best_move_mcts_py(
     state: &GameState,
     style: &str,
@@ -251,7 +253,7 @@ fn best_move_mcts_py(
 
     Python::with_gil(|py| {
         Ok(mv.map(|m| {
-            let dict = PyDict::new(py);
+            let dict = PyDict::new_bound(py);
             dict.set_item("move", MovePy { mv: m.mv }.into_py(py)).unwrap();
             dict.set_item("heuristic_score", m.heuristic_score).unwrap();
             dict.set_item("simulation_score", m.simulation_score).unwrap();
@@ -284,7 +286,7 @@ fn analyze_state_py(state: &GameState) -> PyResult<(usize, Vec<String>, usize, u
 }
 
 #[pymodule]
-fn lonelybot_py(_py: Python, m: &PyModule) -> PyResult<()> {
+fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<GameState>()?;
     m.add_class::<MovePy>()?;
     m.add_class::<HeuristicConfigPy>()?;
