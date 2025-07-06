@@ -232,13 +232,13 @@ fn best_move_py(
     Ok(mv.map(|m| MovePy { mv: m.mv }))
 }
 
-#[pyfunction(signature = (state, style, cfg=None, n_playouts, max_depth))]
+#[pyfunction(signature = (state, style, n_playouts, max_depth, cfg=None))]
 fn best_move_mcts_py(
     state: &GameState,
     style: &str,
-    cfg: Option<&HeuristicConfigPy>,
     n_playouts: usize,
     max_depth: usize,
+    cfg: Option<&HeuristicConfigPy>,
 ) -> PyResult<Option<PyObject>> {
     let mut rng = SmallRng::seed_from_u64(0);
     let cfg = cfg.map_or_else(HeuristicConfig::default, |c| c.into());
