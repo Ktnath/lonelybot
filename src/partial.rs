@@ -10,8 +10,11 @@ use rand::Rng;
 use crate::card::{Card, N_CARDS};
 use crate::shuffler::CardDeck;
 use crate::standard::{PileVec, StandardSolitaire};
+use crate::state::Solitaire;
+use crate::deck::Drawable;
 
 extern crate alloc;
+use alloc::vec;
 use alloc::vec::Vec;
 use alloc::collections::BTreeSet;
 
@@ -56,6 +59,28 @@ impl From<&StandardSolitaire> for PartialState {
 }
 
 impl PartialState {
+    /// Create a partial state from a full `Solitaire` state where hidden cards
+    /// remain unknown.
+    #[must_use]
+    pub fn from_blind(sol: &Solitaire) -> Self {
+        let hidden = sol.get_hidden().to_piles();
+        let visible = sol.compute_visible_piles();
+        let columns: [PartialColumn; 7] = core::array::from_fn(|i| PartialColumn {
+            hidden: vec![None; hidden[i].len()],
+            visible: visible[i].clone(),
+        });
+        let deck: Vec<Option<Card>> = sol
+            .get_deck()
+            .iter_all()
+            .map(|(_, c, d)| if matches!(d, Drawable::None) { None } else { Some(c) })
+            .collect();
+        Self {
+            columns,
+            deck,
+            draw_step: sol.get_deck().draw_step().get(),
+        }
+    }
+
     /// Fill the unknown cards using a random permutation of the remaining
     /// cards. The returned `StandardSolitaire` can then be solved using the
     /// existing engine.
