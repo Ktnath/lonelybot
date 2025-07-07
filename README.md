@@ -9,6 +9,7 @@ Lonelybot
 ## Features
 
 - **Partial information support** via the `partial` module. Hidden cards are represented as `Option<Card>` and can be filled randomly with `fill_unknowns_randomly`.
+- **Weighted unknown filling** with `fill_unknowns_weighted` using probability estimates.
 - **Bayesian inference** using `column_probabilities` to estimate hidden cards.
 - **Strategic play styles** through the `PlayStyle` enum (`Conservative`, `Neutral`, `Aggressive`).
 - **Expert heuristics** configurable with `HeuristicConfig` and used in `ranked_moves` and Monte Carlo search.
@@ -241,6 +242,31 @@ The source and destination is formatted as:
 - D: Deck (the stock)
 - 1..7: Pile (the 1-indexed tableaus)
 - ♥, ♦, ♣, ♠: Stack (the foundation stack)
+ 
+
+### Rand-solve
+Randomly play some moves before invoking the solver. The `start_seed` value controls the random sequence.
+```sh
+lonecli rand-solve [seed_type] [seed] [draw_step] [start_seed]
+```
+
+Example run
+```sh
+lonecli rand-solve default 0 3 0
+```
+
+Example output
+```
+{"tableau piles": ["8S","7D","6S","5H"],["Ah","2D"],["5s","5d","4S","3D","2S"],["4c","Jh","7H"],["8d","8c","9s","Ad","6D"],["7s","4h","2c","10d","3s","9C"],["Qd","As","Qh","10c","Kh","8h","QC","JD"]],"stock": [],"waste": ["9H","10S","10H","6C","KS","7C","KC","JC","6H","2H","QS","3H","9D","JS","4D","KD","3C","5C"],"foundation": [[],[],["AC"],[]]}
+Run in 0.457151 ms
+Statistic
+Total visit: 112
+Transposition hit: 32 (rate 0.2857142857142857)
+Miss state: 80
+Max depth search: 16
+Current progress: 2/2 1/1 1/1 1/1 1/1 2/2 1/1 3/3
+Impossible
+```
 
 
 ### Solve loop
