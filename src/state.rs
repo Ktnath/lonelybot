@@ -1,7 +1,8 @@
 use core::num::NonZeroU8;
 
 use arrayvec::ArrayVec;
-use rand::RngCore;
+use rand::seq::SliceRandom;
+use rand::{Rng, RngCore};
 
 use crate::card::{
     Card, ALT_MASK, HALF_MASK, KING_MASK, KING_RANK, N_CARDS, N_SUITS, RANK_MASK, SUIT_MASK,
@@ -70,6 +71,16 @@ impl Solitaire {
             deck,
             visible_mask,
         }
+    }
+
+    /// Deal a new random game using the provided RNG.
+    #[must_use]
+    pub fn deal_with_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
+        #[allow(clippy::cast_possible_truncation)]
+        let mut cards: CardDeck =
+            core::array::from_fn(|i| Card::new(i as u8 / N_SUITS, i as u8 % N_SUITS));
+        cards.shuffle(rng);
+        Self::new(&cards, NonZeroU8::new(1).unwrap())
     }
 
     #[must_use]

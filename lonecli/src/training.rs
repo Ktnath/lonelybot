@@ -2,15 +2,13 @@ use lonelybot::analysis::{ranked_moves, HeuristicConfig, PlayStyle};
 use lonelybot::engine::SolitaireEngine;
 use lonelybot::partial::PartialState;
 use lonelybot::pruning::FullPruner;
-use lonelybot::shuffler::default_shuffle;
-use lonelybot::standard::StandardSolitaire;
 use lonelybot::state::Solitaire;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde_json::{json, to_string, Value};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::num::NonZeroU8;
+use std::collections::HashSet;
 
 fn state_to_json(state: &PartialState) -> Value {
     let columns: Vec<Value> = state
@@ -49,13 +47,19 @@ pub fn collect_training_data(n_games: usize) -> std::io::Result<()> {
     let mut rng = SmallRng::seed_from_u64(0);
 
     for i in 0..n_games {
-        let deck = default_shuffle(i as u64);
-        let std = StandardSolitaire::new(&deck, NonZeroU8::new(1).unwrap());
-        let solitaire: Solitaire = (&std).into();
+        if i % 1000 == 0 && i > 0 {
+            eprintln!("generated {}/{} games", i, n_games);
+        }
+        let solitaire = Solitaire::deal_with_rng(&mut rng);
         let mut engine: SolitaireEngine<FullPruner> = solitaire.into();
+        let mut seen = HashSet::new();
         let mut turn = 0usize;
         while !engine.state().is_win() {
-            let state = PartialState::from(engine.state());
+            let enc = engine.state().encode();
+            if !seen.insert(enc) {
+                break;
+            }
+            let state = PartialState::from_blind(engine.state());
             let moves = engine.list_moves_dom();
             if moves.is_empty() {
                 break;
