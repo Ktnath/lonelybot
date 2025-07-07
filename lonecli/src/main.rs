@@ -2,6 +2,7 @@ mod solver;
 mod solvitaire;
 mod tracking;
 mod tui;
+mod training;
 
 use bpci::{Interval, NSuccessesSample, WilsonScore};
 use clap::{Args, Parser, Subcommand, ValueEnum};
