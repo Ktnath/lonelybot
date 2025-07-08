@@ -533,6 +533,11 @@ enum Commands {
         seed: StringSeed,
         draw_step: NonZeroU8,
     },
+    Collect {
+        /// Number of games to generate
+        #[arg(default_value_t = 1000)]
+        n_games: usize,
+    },
 }
 
 fn main() {
@@ -594,6 +599,11 @@ fn main() {
                     interval.upper(),
                     elapsed
                 );
+            }
+        }
+        Commands::Collect { n_games } => {
+            if let Err(e) = training::collect_training_data(*n_games) {
+                eprintln!("{e}");
             }
         }
     }

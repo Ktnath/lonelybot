@@ -5,6 +5,10 @@ edition = "2021"
 license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+path = "src/lib.rs"
+# default name is package name
+
 
 [[bin]]
 name = "lonecli"
