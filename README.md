@@ -68,6 +68,42 @@ Style profiles can also be tuned with `aggressive_coef`, `conservative_coef` and
 `neutral_coef` fields in `HeuristicConfigPy`. These coefficients multiply the
 final heuristic score for a move depending on the selected style.
 
+## Collecting Training Data
+
+The helper `collect_training_data` function generates self-play positions for
+training machine learning models. It saves each record as a single JSON object
+per line in `training_data.jsonl` inside the current directory. Every record
+contains the `partial_state`, the list of `available_moves`, the
+`selected_move` and other metadata.
+
+```
+{"turn":0,"partial_state":{...},"available_moves":["PS 7♠","DP 2♦"],"selected_move":"DP 2♦","win":false,"style":"neutral"}
+```
+
+Examples:
+
+- **Rust CLI**
+
+  ```sh
+  cargo run --release -- collect 10000
+  ```
+
+- **Standalone binary**
+
+  ```sh
+  cargo run --release --bin collect
+  ```
+
+- **Python**
+
+  ```python
+  from lonelybot_py import collect_training_data_py
+  collect_training_data_py(10000)
+  ```
+
+The output can grow quickly. Generating millions of games may take several
+hours and produce very large files.
+
 ## Seed
 There are 7 seed types
 - ``default``: using Rust rng
