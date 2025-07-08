@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyValueError, PyIOError};
 use pyo3::wrap_pyfunction;
 use pyo3::Bound;
 
@@ -285,6 +285,12 @@ fn analyze_state_py(state: &GameState) -> PyResult<(usize, Vec<String>, usize, u
     ))
 }
 
+#[pyfunction]
+fn collect_training_data_py(n_games: usize) -> PyResult<()> {
+    lonecli::training::collect_training_data(n_games)
+        .map_err(|e| PyIOError::new_err(e.to_string()))
+}
+
 #[pymodule]
 fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<GameState>()?;
@@ -295,6 +301,7 @@ fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(best_move_mcts_py, m)?)?;
     m.add_function(wrap_pyfunction!(column_probabilities_py, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_state_py, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_training_data_py, m)?)?;
     Ok(())
 }
 
