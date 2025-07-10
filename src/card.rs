@@ -91,7 +91,7 @@ impl Card {
     }
 
     #[must_use]
-    pub(crate) const fn mask_index(self) -> u8 {
+    pub const fn mask_index(self) -> u8 {
         self.0
     }
 

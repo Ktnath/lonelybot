@@ -26,7 +26,7 @@ def step(state: GameState, move: str):
 
 def encode_observation(state: GameState) -> np.ndarray:
     data = _encode_observation(state)
-    return np.array(data, dtype=np.int32)
+    return np.array(data, dtype=np.int16)
 
 __all__ = [
     "GameState",

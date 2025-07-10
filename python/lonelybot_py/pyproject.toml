@@ -6,3 +6,8 @@ build-backend = "maturin"
 name = "lonelybot_py"
 version = "0.1.0"
 requires-python = ">=3.8"
+
+[tool.maturin]
+python-source = "."
+packages = ["lonelybot_py"]
+module-name = "lonelybot_py.lonelybot_py"
