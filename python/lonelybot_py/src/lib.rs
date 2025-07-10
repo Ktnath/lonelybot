@@ -108,16 +108,50 @@ pub struct GameState {
 }
 
 fn parse_card(s: &str) -> PyResult<Card> {
-    const RANKS: [&str; N_RANKS as usize] = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
-    const SUITS: [&str; N_SUITS as usize] = ["H","D","C","S"];
+    const RANKS: [&str; N_RANKS as usize] = [
+        "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K",
+    ];
+    const SUITS: [&str; N_SUITS as usize] = ["H", "D", "C", "S"];
     let s = s.trim();
-    if s.len() < 2 { return Err(PyValueError::new_err("invalid card")); }
-    let (rank_str, suit_str) = s.split_at(s.len()-1);
-    let rank = RANKS.iter().position(|&r| r.eq_ignore_ascii_case(rank_str))
+    if s.len() < 2 {
+        return Err(PyValueError::new_err("invalid card"));
+    }
+    let mut chars = s.chars();
+    let suit_ch = chars
+        .next_back()
+        .ok_or_else(|| PyValueError::new_err("invalid card"))?;
+    let rank_str: String = chars.collect();
+    let rank = RANKS
+        .iter()
+        .position(|&r| r.eq_ignore_ascii_case(&rank_str))
         .ok_or_else(|| PyValueError::new_err("invalid rank"))? as u8;
-    let suit = SUITS.iter().position(|&r| r.eq_ignore_ascii_case(suit_str))
-        .ok_or_else(|| PyValueError::new_err("invalid suit"))? as u8;
+    let suit = match suit_ch {
+        'H' | 'h' | '♥' => 0,
+        'D' | 'd' | '♦' => 1,
+        'C' | 'c' | '♣' => 2,
+        'S' | 's' | '♠' => 3,
+        _ => return Err(PyValueError::new_err("invalid suit")),
+    };
     Ok(Card::new(rank, suit))
+}
+
+fn parse_move_str(s: &str) -> PyResult<lonelybot::moves::Move> {
+    let mut it = s.split_whitespace();
+    let action = it
+        .next()
+        .ok_or_else(|| PyValueError::new_err("invalid move"))?;
+    let card_str = it
+        .next()
+        .ok_or_else(|| PyValueError::new_err("invalid move"))?;
+    let card = parse_card(card_str)?;
+    match action.to_uppercase().as_str() {
+        "DS" => Ok(lonelybot::moves::Move::DeckStack(card)),
+        "PS" => Ok(lonelybot::moves::Move::PileStack(card)),
+        "DP" => Ok(lonelybot::moves::Move::DeckPile(card)),
+        "SP" => Ok(lonelybot::moves::Move::StackPile(card)),
+        "R" => Ok(lonelybot::moves::Move::Reveal(card)),
+        _ => Err(PyValueError::new_err("unknown move type")),
+    }
 }
 
 fn parse_json_state(txt: &str) -> PyResult<PartialState> {
@@ -291,6 +325,94 @@ fn collect_training_data_py(n_games: usize) -> PyResult<()> {
         .map_err(|e| PyIOError::new_err(e.to_string()))
 }
 
+#[pyfunction]
+fn generate_random_state_py() -> PyResult<GameState> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut rng = SmallRng::seed_from_u64(seed);
+    let solitaire = lonelybot::state::Solitaire::deal_with_rng(&mut rng);
+    let std: StandardSolitaire = (&solitaire).into();
+    Ok(GameState {
+        state: PartialState::from(&std),
+    })
+}
+
+fn to_engine(state: &PartialState) -> SolitaireEngine<FullPruner> {
+    let mut rng = SmallRng::seed_from_u64(0);
+    let std = state.fill_unknowns_randomly(&mut rng);
+    let sol: lonelybot::state::Solitaire = (&std).into();
+    sol.into()
+}
+
+#[pyfunction]
+fn legal_actions_py(state: &GameState) -> PyResult<Vec<String>> {
+    let engine = to_engine(&state.state);
+    Ok(engine
+        .list_moves_dom()
+        .iter()
+        .map(|m| m.to_string())
+        .collect())
+}
+
+#[pyfunction]
+fn is_terminal_py(state: &GameState) -> PyResult<bool> {
+    let mut engine = to_engine(&state.state);
+    Ok(engine.state().is_win() || engine.list_moves_dom().is_empty())
+}
+
+#[pyfunction]
+fn step_py(state: &GameState, mv: &str) -> PyResult<(GameState, bool, i32)> {
+    let mut engine = to_engine(&state.state);
+    let parsed = parse_move_str(mv)?;
+    let valid = engine.do_move(parsed);
+    if !valid {
+        return Ok((state.clone(), false, -1));
+    }
+    let done = engine.state().is_win() || engine.list_moves_dom().is_empty();
+    let reward = if engine.state().is_win() {
+        100
+    } else if done {
+        -1
+    } else {
+        1
+    };
+    let st: StandardSolitaire = engine.state().into();
+    let next_state = GameState {
+        state: PartialState::from(&st),
+    };
+    Ok((next_state, done, reward))
+}
+
+#[pyfunction]
+fn encode_observation_py(state: &GameState) -> PyResult<Vec<i32>> {
+    let mut rng = SmallRng::seed_from_u64(0);
+    let std = state.state.fill_unknowns_randomly(&mut rng);
+    let mut obs: Vec<i32> = Vec::with_capacity(100);
+    for col in &std.get_piles()[..] {
+        for i in 0..13 {
+            if let Some(&c) = col.get(i) {
+                obs.push(i32::from(c.mask_index()) + 1);
+            } else {
+                obs.push(0);
+            }
+        }
+    }
+    for i in 0..7 {
+        let hidden_len = std.get_hidden()[i].len();
+        obs.push(hidden_len as i32);
+    }
+    if let Some(c) = std.get_deck().peek_current() {
+        obs.push(i32::from(c.mask_index()) + 1);
+    } else {
+        obs.push(0);
+    }
+    obs.push(std.get_deck().deck_iter().len() as i32);
+    Ok(obs)
+}
+
 #[pymodule]
 fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<GameState>()?;
@@ -302,6 +424,11 @@ fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(column_probabilities_py, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_state_py, m)?)?;
     m.add_function(wrap_pyfunction!(collect_training_data_py, m)?)?;
+    m.add_function(wrap_pyfunction!(generate_random_state_py, m)?)?;
+    m.add_function(wrap_pyfunction!(step_py, m)?)?;
+    m.add_function(wrap_pyfunction!(legal_actions_py, m)?)?;
+    m.add_function(wrap_pyfunction!(is_terminal_py, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_observation_py, m)?)?;
     Ok(())
 }
 
