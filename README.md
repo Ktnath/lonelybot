@@ -18,6 +18,8 @@ Lonelybot
 - **MCTS based solver** available through `best_move_mcts` which now accepts `n_playouts` and `max_depth`.
 - **Partial JSON loading** where `"unknown"` or `-1` values denote hidden cards.
 - **Python bindings** exposing the above features for scripting.
+- **Card mask indices** accessible via `mask_index` for stable card IDs.
+- **Reinforcement learning helpers** in `lonelybot_py` (`generate_random_state`, `step`, `legal_actions`, `is_terminal`, `encode_observation`).
 
 You'd probably want to use `lonecli`. To run it with `cargo`,
 
@@ -46,8 +48,11 @@ maturin develop
 
 This installs a `lonelybot_py` module providing `GameState`, `Move`,
 `ranked_moves`, `best_move`, `best_move_mcts`, `column_probabilities` and
-`analyze_state`.  The helper `python/utils.py` includes a `parse_hidden()`
-function for loading JSON states with `"unknown"` or `-1` values.
+`analyze_state`. It also exposes `collect_training_data`,
+`generate_random_state`, `step`, `legal_actions`, `is_terminal` and
+`encode_observation` for reinforcement learning. The helper
+`python/utils.py` includes a `parse_hidden()` function for loading JSON
+states with `"unknown"` or `-1` values.
 
 Heuristic weights can be customised through the `HeuristicConfig` class and
 passed to `ranked_moves`, `best_move` or `best_move_mcts`:
