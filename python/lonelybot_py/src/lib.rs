@@ -2,6 +2,8 @@ use pyo3::prelude::*;
 use pyo3::exceptions::{PyValueError, PyIOError};
 use pyo3::wrap_pyfunction;
 use pyo3::Bound;
+use numpy::{PyReadonlyArray2, PyArray2, IntoPyArray};
+use ndarray::Array2;
 
 use lonelybot::analysis::{ranked_moves, ranked_moves_from_partial, analyze_state, HeuristicConfig, PlayStyle, StateAnalysis};
 use lonelybot::game_theory::best_move_mcts;
@@ -14,6 +16,14 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use pyo3::types::PyDict;
 use serde_json::Value;
+
+const BOARD_SIZE: usize = 100;
+const ACTION_SIZE: usize = 215;
+const OFF_DECK_STACK: u8 = 0;
+const OFF_PILE_STACK: u8 = OFF_DECK_STACK + 52;
+const OFF_DECK_PILE: u8 = OFF_PILE_STACK + 52;
+const OFF_STACK_PILE: u8 = OFF_DECK_PILE + 52;
+const OFF_REVEAL: u8 = OFF_STACK_PILE + 52;
 
 #[pyclass]
 #[derive(Clone)]
@@ -347,6 +357,45 @@ fn to_engine(state: &PartialState) -> SolitaireEngine<FullPruner> {
     sol.into()
 }
 
+fn move_to_action_idx(engine: &SolitaireEngine<FullPruner>, m: &lonelybot::moves::Move) -> PyResult<u8> {
+    use lonelybot::moves::Move::*;
+    Ok(match m {
+        DeckStack(c) => OFF_DECK_STACK + c.mask_index(),
+        PileStack(c) => OFF_PILE_STACK + c.mask_index(),
+        DeckPile(c) => OFF_DECK_PILE + c.mask_index(),
+        StackPile(c) => OFF_STACK_PILE + c.mask_index(),
+        Reveal(c) => {
+            let std: StandardSolitaire = engine.state().into();
+            let col = std.find_top_card(*c).ok_or_else(|| PyValueError::new_err("invalid reveal"))?;
+            OFF_REVEAL + col
+        }
+    })
+}
+
+fn action_idx_to_move_str(state: &GameState, idx: u8) -> PyResult<String> {
+    let mut engine = to_engine(&state.state);
+    Ok(if idx < OFF_PILE_STACK {
+        let c = Card::from_mask_index(idx);
+        format!("DS {c}")
+    } else if idx < OFF_DECK_PILE {
+        let c = Card::from_mask_index(idx - OFF_PILE_STACK);
+        format!("PS {c}")
+    } else if idx < OFF_STACK_PILE {
+        let c = Card::from_mask_index(idx - OFF_DECK_PILE);
+        format!("DP {c}")
+    } else if idx < OFF_REVEAL {
+        let c = Card::from_mask_index(idx - OFF_STACK_PILE);
+        format!("SP {c}")
+    } else {
+        let col = (idx - OFF_REVEAL) as usize;
+        let std: StandardSolitaire = engine.state().into();
+        let card = *std.get_hidden()[col]
+            .last()
+            .ok_or_else(|| PyValueError::new_err("invalid reveal column"))?;
+        format!("R {card}")
+    })
+}
+
 #[pyfunction]
 fn legal_actions_py(state: &GameState) -> PyResult<Vec<String>> {
     let engine = to_engine(&state.state);
@@ -413,6 +462,64 @@ fn encode_observation_py(state: &GameState) -> PyResult<Vec<i32>> {
     Ok(obs)
 }
 
+#[pyfunction]
+fn reset_py(py: Python<'_>) -> PyResult<(GameState, Py<PyArray2<i8>>)> {
+    let state = generate_random_state_py()?;
+    let obs = encode_observation_py(&state)?;
+    let arr: Vec<i8> = obs.into_iter().map(|v| v as i8).collect();
+    let board = PyArray2::from_shape_vec(py, (1, arr.len()), arr)?;
+    Ok((state, board.to_owned()))
+}
+
+#[pyfunction]
+fn get_valid_actions_py(state: &GameState) -> PyResult<Vec<u8>> {
+    let engine = to_engine(&state.state);
+    Ok(engine
+        .list_moves_dom()
+        .iter()
+        .map(|m| move_to_action_idx(&engine, m))
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+#[pyfunction]
+fn step_action_py(py: Python<'_>, state: &GameState, action: u8) -> PyResult<(GameState, Py<PyArray2<i8>>, i8, bool)> {
+    let mv = action_idx_to_move_str(state, action)?;
+    let (next_state, done, reward) = step_py(state, &mv)?;
+    let obs = encode_observation_py(&next_state)?;
+    let arr: Vec<i8> = obs.into_iter().map(|v| v as i8).collect();
+    let board = PyArray2::from_shape_vec(py, (1, arr.len()), arr)?;
+    Ok((next_state, board.to_owned(), reward as i8, done))
+}
+
+#[pyfunction]
+fn get_game_result_py(state: &GameState) -> PyResult<i8> {
+    let mut engine = to_engine(&state.state);
+    if engine.state().is_win() {
+        Ok(1)
+    } else if engine.list_moves_dom().is_empty() {
+        Ok(-1)
+    } else {
+        Ok(0)
+    }
+}
+
+#[pyfunction]
+fn get_board_size_py() -> (usize, usize) {
+    (1, BOARD_SIZE)
+}
+
+#[pyfunction]
+fn get_action_size_py() -> usize {
+    ACTION_SIZE as usize
+}
+
+#[pyfunction]
+fn get_canonical_board_py(board: PyReadonlyArray2<i8>) -> Py<PyArray2<i8>> {
+    let py = board.py();
+    let arr = board.to_owned_array();
+    PyArray2::from_owned_array(py, arr).to_owned()
+}
+
 #[pymodule]
 fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<GameState>()?;
@@ -429,6 +536,13 @@ fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(legal_actions_py, m)?)?;
     m.add_function(wrap_pyfunction!(is_terminal_py, m)?)?;
     m.add_function(wrap_pyfunction!(encode_observation_py, m)?)?;
+    m.add_function(wrap_pyfunction!(reset_py, m)?)?;
+    m.add_function(wrap_pyfunction!(get_valid_actions_py, m)?)?;
+    m.add_function(wrap_pyfunction!(step_action_py, m)?)?;
+    m.add_function(wrap_pyfunction!(get_game_result_py, m)?)?;
+    m.add_function(wrap_pyfunction!(get_board_size_py, m)?)?;
+    m.add_function(wrap_pyfunction!(get_action_size_py, m)?)?;
+    m.add_function(wrap_pyfunction!(get_canonical_board_py, m)?)?;
     Ok(())
 }
 

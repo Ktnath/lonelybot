@@ -73,6 +73,20 @@ Style profiles can also be tuned with `aggressive_coef`, `conservative_coef` and
 `neutral_coef` fields in `HeuristicConfigPy`. These coefficients multiply the
 final heuristic score for a move depending on the selected style.
 
+### AlphaZero helpers
+
+The bindings also expose convenience functions mirroring the `Game` interface of
+`AlphaZero-General`. They return NumPy arrays and compact action indices:
+
+```python
+from lonelybot_py import reset, get_valid_actions, step_action, get_game_result
+
+state, board = reset()
+valid = get_valid_actions(state)
+next_state, board, reward, done = step_action(state, valid[0])
+result = get_game_result(next_state)
+```
+
 ## Collecting Training Data
 
 The helper `collect_training_data` function generates self-play positions for
