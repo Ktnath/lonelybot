@@ -9,6 +9,7 @@ use serde_json::{json, to_string, Value};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::collections::HashSet;
+use std::env;
 
 fn state_to_json(state: &PartialState) -> Value {
     let columns: Vec<Value> = state
@@ -42,7 +43,10 @@ fn state_to_json(state: &PartialState) -> Value {
 }
 
 pub fn collect_training_data(n_games: usize) -> std::io::Result<()> {
-    let file = File::create("training_data.jsonl")?;
+    use std::env;
+    let current_dir = env::current_dir()?;
+    let file_path = current_dir.join("training_data.jsonl");
+    let file = File::create(file_path)?;
     let mut writer = BufWriter::new(file);
     let mut rng = SmallRng::seed_from_u64(0);
 

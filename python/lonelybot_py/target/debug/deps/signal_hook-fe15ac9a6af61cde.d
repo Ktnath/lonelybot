@@ -1,0 +1,9 @@
+D:\New\lonelybot\python\lonelybot_py\target\debug\deps\signal_hook-fe15ac9a6af61cde.d: C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\lib.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\flag.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\mod.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\channel.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\signal_details.rs
+
+D:\New\lonelybot\python\lonelybot_py\target\debug\deps\libsignal_hook-fe15ac9a6af61cde.rmeta: C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\lib.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\flag.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\mod.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\channel.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\signal_details.rs
+
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\lib.rs:
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\flag.rs:
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\mod.rs:
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\channel.rs:
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\signal-hook-0.3.18\src\low_level\signal_details.rs:

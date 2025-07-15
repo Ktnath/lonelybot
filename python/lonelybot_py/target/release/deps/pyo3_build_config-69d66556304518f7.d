@@ -1,0 +1,14 @@
+D:\New\lonelybot\python\lonelybot_py\target\release\deps\pyo3_build_config-69d66556304518f7.d: C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\lib.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\errors.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\impl_.rs D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config-file.txt D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config.txt
+
+D:\New\lonelybot\python\lonelybot_py\target\release\deps\libpyo3_build_config-69d66556304518f7.rlib: C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\lib.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\errors.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\impl_.rs D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config-file.txt D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config.txt
+
+D:\New\lonelybot\python\lonelybot_py\target\release\deps\libpyo3_build_config-69d66556304518f7.rmeta: C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\lib.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\errors.rs C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\impl_.rs D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config-file.txt D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config.txt
+
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\lib.rs:
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\errors.rs:
+C:\Users\analytica360pro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-build-config-0.20.2\src\impl_.rs:
+D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config-file.txt:
+D:\New\lonelybot\python\lonelybot_py\target\release\build\pyo3-build-config-ef2fe74ca744a500\out/pyo3-build-config.txt:
+
+# env-dep:CARGO_PKG_VERSION=0.20.2
+# env-dep:OUT_DIR=D:\\New\\lonelybot\\python\\lonelybot_py\\target\\release\\build\\pyo3-build-config-ef2fe74ca744a500\\out

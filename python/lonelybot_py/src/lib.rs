@@ -1,7 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyValueError, PyIOError};
 use pyo3::wrap_pyfunction;
-use pyo3::Bound;
 use numpy::{PyReadonlyArray2, PyArray2, IntoPyArray};
 use ndarray::Array2;
 
@@ -243,7 +242,7 @@ fn ranked_moves_py(
     Python::with_gil(|py| {
         let mut res = Vec::new();
         for m in moves {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             dict.set_item("move", MovePy { mv: m.mv }.into_py(py))?;
             dict.set_item("heuristic_score", m.heuristic_score)?;
             dict.set_item("simulation_score", m.simulation_score)?;
@@ -297,7 +296,7 @@ fn best_move_mcts_py(
 
     Python::with_gil(|py| {
         Ok(mv.map(|m| {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             dict.set_item("move", MovePy { mv: m.mv }.into_py(py)).unwrap();
             dict.set_item("heuristic_score", m.heuristic_score).unwrap();
             dict.set_item("simulation_score", m.simulation_score).unwrap();
@@ -372,19 +371,23 @@ fn move_to_action_idx(engine: &SolitaireEngine<FullPruner>, m: &lonelybot::moves
     })
 }
 
+fn card_from_mask_index(idx: u8) -> Card {
+    unsafe { std::mem::transmute(idx) }
+}
+
 fn action_idx_to_move_str(state: &GameState, idx: u8) -> PyResult<String> {
-    let mut engine = to_engine(&state.state);
+    let engine = to_engine(&state.state);
     Ok(if idx < OFF_PILE_STACK {
-        let c = Card::from_mask_index(idx);
+        let c = card_from_mask_index(idx);
         format!("DS {c}")
     } else if idx < OFF_DECK_PILE {
-        let c = Card::from_mask_index(idx - OFF_PILE_STACK);
+        let c = card_from_mask_index(idx - OFF_PILE_STACK);
         format!("PS {c}")
     } else if idx < OFF_STACK_PILE {
-        let c = Card::from_mask_index(idx - OFF_DECK_PILE);
+        let c = card_from_mask_index(idx - OFF_DECK_PILE);
         format!("DP {c}")
     } else if idx < OFF_REVEAL {
-        let c = Card::from_mask_index(idx - OFF_STACK_PILE);
+        let c = card_from_mask_index(idx - OFF_STACK_PILE);
         format!("SP {c}")
     } else {
         let col = (idx - OFF_REVEAL) as usize;
@@ -408,7 +411,7 @@ fn legal_actions_py(state: &GameState) -> PyResult<Vec<String>> {
 
 #[pyfunction]
 fn is_terminal_py(state: &GameState) -> PyResult<bool> {
-    let mut engine = to_engine(&state.state);
+    let engine = to_engine(&state.state);
     Ok(engine.state().is_win() || engine.list_moves_dom().is_empty())
 }
 
@@ -467,8 +470,8 @@ fn reset_py(py: Python<'_>) -> PyResult<(GameState, Py<PyArray2<i8>>)> {
     let state = generate_random_state_py()?;
     let obs = encode_observation_py(&state)?;
     let arr: Vec<i8> = obs.into_iter().map(|v| v as i8).collect();
-    let board = PyArray2::from_shape_vec(py, (1, arr.len()), arr)?;
-    Ok((state, board.to_owned()))
+    let array = Array2::from_shape_vec((1, arr.len()), arr).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((state, array.into_pyarray(py).to_owned()))
 }
 
 #[pyfunction]
@@ -487,13 +490,13 @@ fn step_action_py(py: Python<'_>, state: &GameState, action: u8) -> PyResult<(Ga
     let (next_state, done, reward) = step_py(state, &mv)?;
     let obs = encode_observation_py(&next_state)?;
     let arr: Vec<i8> = obs.into_iter().map(|v| v as i8).collect();
-    let board = PyArray2::from_shape_vec(py, (1, arr.len()), arr)?;
-    Ok((next_state, board.to_owned(), reward as i8, done))
+    let array = Array2::from_shape_vec((1, arr.len()), arr).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((next_state, array.into_pyarray(py).to_owned(), reward as i8, done))
 }
 
 #[pyfunction]
 fn get_game_result_py(state: &GameState) -> PyResult<i8> {
-    let mut engine = to_engine(&state.state);
+    let engine = to_engine(&state.state);
     if engine.state().is_win() {
         Ok(1)
     } else if engine.list_moves_dom().is_empty() {
@@ -514,14 +517,14 @@ fn get_action_size_py() -> usize {
 }
 
 #[pyfunction]
-fn get_canonical_board_py(board: PyReadonlyArray2<i8>) -> Py<PyArray2<i8>> {
+fn get_canonical_board_py(board: PyReadonlyArray2<i8>, _player: i8) -> Py<PyArray2<i8>> {
     let py = board.py();
     let arr = board.to_owned_array();
-    PyArray2::from_owned_array(py, arr).to_owned()
+    arr.into_pyarray(py).to_owned()
 }
 
 #[pymodule]
-fn lonelybot_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn lonelybot_py(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<GameState>()?;
     m.add_class::<MovePy>()?;
     m.add_class::<HeuristicConfigPy>()?;
