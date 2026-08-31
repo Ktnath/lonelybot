@@ -1,30 +1,45 @@
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-from klondike_core import (
-    new_game,
-    legal_moves,
-    do_move,
-    is_win,
-    encode_observation_py,
-    move_to_action_idx,
+from lonelybot_py import (
+    get_action_size_py,
+    get_board_size_py,
     get_valid_actions_py,
-    NB_ACTIONS,
+    reset_py,
+    step_action_py,
 )
 
 
 class KlondikeEnv(gym.Env):
-    """Gymnasium environment for the Klondike solitaire engine."""
+    """Gymnasium adapter around the current ``lonelybot_py`` bindings.
+
+    The Rust binding owns the game state. Observations are flattened to a
+    100-element float32 vector and legal action indices live in [0, 214].
+    """
 
     metadata = {"render_modes": []}
 
     def __init__(self) -> None:
         super().__init__()
-        self.action_space = spaces.Discrete(NB_ACTIONS)
-        self.observation_space = spaces.Box(low=0, high=255, shape=(156,), dtype=np.int32)
-        self.state: Optional[str] = None
+        board_shape = tuple(int(v) for v in get_board_size_py())
+        self._obs_size = int(np.prod(board_shape))
+        self._action_size = int(get_action_size_py())
+
+        self.action_space = spaces.Discrete(self._action_size)
+        self.observation_space = spaces.Box(
+            low=0.0,
+            high=255.0,
+            shape=(self._obs_size,),
+            dtype=np.float32,
+        )
+        self.state: Optional[Any] = None
+        self._obs = np.zeros(self._obs_size, dtype=np.float32)
+
+    @staticmethod
+    def _flatten_board(board: Any) -> np.ndarray:
+        return np.asarray(board, dtype=np.float32).reshape(-1)
 
     def reset(
         self,
@@ -32,43 +47,46 @@ class KlondikeEnv(gym.Env):
         seed: Optional[int] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Start a new game and return the initial observation."""
+        """Start a new game.
+
+        ``seed`` currently seeds Gymnasium's RNG only; deterministic Rust-side
+        deal selection is a separate research task and is reported in ``info``.
+        """
         super().reset(seed=seed)
-        if seed is None:
-            seed = int(self.np_random.integers(0, 2**32 - 1))
-        self.state = new_game(int(seed))
-        obs = np.array(encode_observation_py(self.state), dtype=np.int32)
-        return obs, {}
+        self.state, board = reset_py()
+        self._obs = self._flatten_board(board)
+        info: Dict[str, Any] = {
+            "valid_actions": list(get_valid_actions_py(self.state)),
+            "rust_seeded_reset": False,
+        }
+        return self._obs.copy(), info
+
+    def action_mask(self) -> np.ndarray:
+        """Return a boolean mask of legal actions for the current state."""
+        if self.state is None:
+            raise RuntimeError("Call reset() before action_mask().")
+        mask = np.zeros(self._action_size, dtype=bool)
+        mask[np.asarray(get_valid_actions_py(self.state), dtype=np.int64)] = True
+        return mask
 
     def step(self, action: int):
-        assert self.state is not None, "Call reset() before step()."
+        if self.state is None:
+            raise RuntimeError("Call reset() before step().")
 
-        legal_move_strings = legal_moves(self.state)
-        action_map = {move_to_action_idx(m): m for m in legal_move_strings}
+        valid_actions = set(int(a) for a in get_valid_actions_py(self.state))
+        action = int(action)
+        if action not in valid_actions:
+            info = {"legal": False, "valid_actions": sorted(valid_actions)}
+            return self._obs.copy(), -1.0, False, False, info
 
-        if action in action_map:
-            mv = action_map[action]
-            self.state = do_move(self.state, mv)
-            legal = True
-            done = is_win(self.state)
-            if done:
-                reward = 100
-            else:
-                remaining = get_valid_actions_py(self.state)
-                if not remaining:
-                    done = True
-                    reward = -1
-                else:
-                    reward = 1
-        else:
-            mv = None
-            legal = False
-            done = False
-            reward = -1
-
-        obs = np.array(encode_observation_py(self.state), dtype=np.int32)
-        info = {"move": mv, "legal": legal}
-        return obs, reward, done, False, info
+        self.state, board, reward, done = step_action_py(self.state, action)
+        self._obs = self._flatten_board(board)
+        next_valid = list(get_valid_actions_py(self.state)) if not done else []
+        info = {
+            "legal": True,
+            "valid_actions": next_valid,
+        }
+        return self._obs.copy(), float(reward), bool(done), False, info
 
     def render(self):  # pragma: no cover - rendering not implemented
-        pass
+        return None
