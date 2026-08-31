@@ -21,4 +21,5 @@ pub mod dependencies;
 pub mod partial;
 pub mod analysis;
 pub mod game_theory;
+pub mod belief;
 mod utils;
