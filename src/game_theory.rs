@@ -6,31 +6,35 @@ use crate::analysis::{ranked_moves, HeuristicConfig, PlayStyle, RankedMove};
 use crate::engine::SolitaireEngine;
 use crate::partial::PartialState;
 use crate::pruning::FullPruner;
+use crate::standard::StandardSolitaire;
 
-/// Dense leaf evaluation for Monte Carlo rollouts.
+const ROLLOUT_EXPLORATION_RATE: f64 = 0.10;
+const HEURISTIC_PRIOR_WEIGHT: f64 = 4.0;
+
+/// Dense leaf evaluation for guided Monte Carlo rollouts.
 ///
-/// The previous implementation only rewarded a rollout if it reached a full
-/// win before `max_depth`. In Klondike that makes almost every short rollout
-/// worth zero. This evaluator gives partial credit for genuine progress while
-/// keeping terminal wins/deadlocks dominant.
+/// A full win remains overwhelmingly best. A terminal deadlock is always a
+/// loss, but late deadlocks receive slightly less-negative values than early
+/// ones so that all failed rollouts are not collapsed to the same constant.
+/// Non-terminal leaves reward foundation progress, revealed tableau cards and
+/// mobility.
 fn leaf_value(engine: &SolitaireEngine<FullPruner>) -> f64 {
     if engine.state().is_win() {
         return 1000.0;
     }
 
     let legal = engine.list_moves_dom();
-    if legal.is_empty() {
-        return -250.0;
-    }
-
     let foundation = f64::from(engine.state().get_stack().len());
     let hidden_down = f64::from(engine.state().get_hidden().total_down_cards());
-    let mobility = legal.len() as f64;
 
-    // Foundation progress is the strongest positive signal. Revealing tableau
-    // cards is next, followed by a smaller mobility bonus. The absolute scale
-    // is intentionally far below the terminal win value.
-    foundation * 12.0 - hidden_down * 5.0 + mobility * 1.5
+    if legal.is_empty() {
+        // Keep every proven loss below a live position in ordinary ranges,
+        // while retaining information about how far the rollout progressed.
+        return -300.0 + foundation * 3.0 - hidden_down;
+    }
+
+    let mobility = legal.len() as f64;
+    foundation * 10.0 - hidden_down * 4.0 + mobility * 2.0
 }
 
 fn round_to_i32(value: f64) -> i32 {
@@ -41,11 +45,46 @@ fn round_to_i32(value: f64) -> i32 {
     }
 }
 
-/// Run a light Monte Carlo tree search to pick the best move.
+/// Choose a rollout action using the existing expert heuristic most of the
+/// time, with a small amount of random exploration.
 ///
-/// This is still a determinization-based baseline rather than the final belief
-/// solver. Unknown cards are sampled from the current partial-state model, and
-/// each candidate move is evaluated over multiple sampled continuations.
+/// The rollout operates inside one sampled determinization. Converting that
+/// determinized state back to `PartialState` is intentional here: this remains
+/// a determinization baseline, not the final information-set solver.
+fn choose_rollout_move<R: Rng>(
+    engine: &SolitaireEngine<FullPruner>,
+    style: PlayStyle,
+    cfg: &HeuristicConfig,
+    rng: &mut R,
+) -> Option<crate::moves::Move> {
+    let legal = engine.list_moves_dom();
+    if legal.is_empty() {
+        return None;
+    }
+
+    if rng.random_bool(ROLLOUT_EXPLORATION_RATE) {
+        return legal.choose(rng).copied();
+    }
+
+    let std = StandardSolitaire::from(engine.state());
+    let partial = PartialState::from(&std);
+    ranked_moves(engine, &partial, style, cfg)
+        .into_iter()
+        .next()
+        .map(|ranked| ranked.mv)
+        .or_else(|| legal.choose(rng).copied())
+}
+
+/// Run a light Monte Carlo search over sampled determinizations.
+///
+/// Phase 0.2 changes two things compared with the previous baseline:
+///  * rollouts are heuristic-guided instead of uniformly random;
+///  * the heuristic root score acts as a meaningful prior rather than a tiny
+///    tie-breaker.
+///
+/// This is still not a true belief-state / information-set MCTS. Unknown cards
+/// are independently sampled for each rollout and the final Phase-1 solver will
+/// replace this root model with a particle belief over legitimate histories.
 #[must_use]
 pub fn best_move_mcts<R: Rng>(
     state: &PartialState,
@@ -73,10 +112,11 @@ pub fn best_move_mcts<R: Rng>(
             let solitaire_child: crate::state::Solitaire = (&filled).into();
             let mut child: SolitaireEngine<FullPruner> = solitaire_child.into();
 
-            // A move produced by one determinization can be invalid in another.
-            // Do not silently score such a world as if the move had happened.
+            // A move exposed by one determinization may not exist in another.
+            // This penalty is deliberately retained because it reveals where
+            // the current action representation is not information-set safe.
             if !child.do_move(m.mv) {
-                total -= 250.0;
+                total -= 300.0;
                 continue;
             }
             valid_playouts += 1;
@@ -84,11 +124,12 @@ pub fn best_move_mcts<R: Rng>(
             let mut tmp: SolitaireEngine<FullPruner> = child.state().clone().into();
             let mut depth = 0usize;
             while depth < max_depth && !tmp.state().is_win() {
-                let list = tmp.list_moves_dom();
-                let Some(mv) = list.choose(rng).copied() else {
+                let Some(mv) = choose_rollout_move(&tmp, style, cfg, rng) else {
                     break;
                 };
-                tmp.do_move(mv);
+                if !tmp.do_move(mv) {
+                    break;
+                }
                 depth += 1;
             }
 
@@ -111,9 +152,7 @@ pub fn best_move_mcts<R: Rng>(
             wins as f64 / valid_playouts as f64
         };
 
-        // Dense rollout value drives the decision. Existing expert heuristics
-        // only break near-ties rather than replacing simulation evidence.
-        let combined = avg + f64::from(m.heuristic_score) * 0.05;
+        let combined = avg + f64::from(m.heuristic_score) * HEURISTIC_PRIOR_WEIGHT;
         if let Some((_, best_score)) = &mut best {
             if combined > *best_score {
                 *best_score = combined;
