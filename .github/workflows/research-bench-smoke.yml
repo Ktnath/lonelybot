@@ -24,6 +24,7 @@ jobs:
         run: |
           cargo build --release -p lonecli --bin lonecli
           cargo build --release -p lonecli --bin research_trace
+          cargo build --release -p lonecli --bin belief_validate
 
       - name: Python syntax checks
         run: |
