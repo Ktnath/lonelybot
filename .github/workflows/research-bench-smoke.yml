@@ -20,8 +20,10 @@ jobs:
       - name: Rust tests
         run: cargo test --release
 
-      - name: Build lonecli
-        run: cargo build --release -p lonecli
+      - name: Build research binaries
+        run: |
+          cargo build --release -p lonecli --bin lonecli
+          cargo build --release -p lonecli --bin research_trace
 
       - name: Python syntax checks
         run: |
