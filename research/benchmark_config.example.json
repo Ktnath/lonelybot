@@ -1,0 +1,8 @@
+{
+  "seeds": 100,
+  "draw_step": 3,
+  "mcts_playouts": 256,
+  "mcts_depth": 64,
+  "belief_samples": 128,
+  "max_moves": 256
+}
