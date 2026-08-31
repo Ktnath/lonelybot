@@ -1,8 +1,14 @@
 {
+  "phase": "0.1",
   "seeds": 100,
   "draw_step": 3,
-  "mcts_playouts": 256,
-  "mcts_depth": 64,
-  "belief_samples": 128,
-  "max_moves": 256
+  "oracle_timeout_s": 15.0,
+  "mcts_grid": [
+    {"playouts": 64, "depth": 64},
+    {"playouts": 256, "depth": 96},
+    {"playouts": 1024, "depth": 128}
+  ],
+  "policy_batch_sizes": [1, 32, 256, 2048, 8192],
+  "policy_repeats": 20,
+  "compare_cpu_gpu": true
 }
