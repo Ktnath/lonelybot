@@ -5,7 +5,13 @@
   "oracle_timeout_s": 15.0,
   "mcts_grid": [
     {"playouts": 64, "depth": 64},
+    {"playouts": 64, "depth": 96},
+    {"playouts": 64, "depth": 128},
+    {"playouts": 256, "depth": 64},
     {"playouts": 256, "depth": 96},
+    {"playouts": 256, "depth": 128},
+    {"playouts": 1024, "depth": 64},
+    {"playouts": 1024, "depth": 96},
     {"playouts": 1024, "depth": 128}
   ],
   "policy_batch_sizes": [1, 32, 256, 2048, 8192],
