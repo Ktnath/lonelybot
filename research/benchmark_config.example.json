@@ -1,0 +1,19 @@
+{
+  "phase": "0.2",
+  "seeds": 100,
+  "draw_step": 3,
+  "oracle_timeout_s": 15.0,
+  "critical_points": 120,
+  "critical_points_per_seed": 2,
+  "min_critical_step": 1,
+  "mcts_grid": [
+    {"playouts": 64, "depth": 96},
+    {"playouts": 256, "depth": 96},
+    {"playouts": 1024, "depth": 96}
+  ],
+  "rollout_policy": {
+    "heuristic_probability": 0.9,
+    "random_exploration_probability": 0.1,
+    "heuristic_prior_weight": 4.0
+  }
+}
