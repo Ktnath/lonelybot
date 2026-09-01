@@ -21,6 +21,7 @@ struct BudgetAggregate {
     oracle_representable: usize,
     decision_ms: Vec<f64>,
     invalid_selected: usize,
+    decisions_with_any_invalid_action: usize,
 }
 
 fn action_string(action: &StandardMove) -> String {
@@ -47,9 +48,23 @@ fn percentile(values: &[f64], q: f64) -> f64 {
 
 fn selected_json(decision: &ParticleBeliefDecision, elapsed_ms: f64) -> Value {
     let s = &decision.actions[decision.chosen_index];
+    let actions_with_invalid_particles = decision
+        .actions
+        .iter()
+        .filter(|stats| stats.invalid_particles > 0)
+        .count();
+    let max_invalid_particles = decision
+        .actions
+        .iter()
+        .map(|stats| stats.invalid_particles)
+        .max()
+        .unwrap_or(0);
     json!({
         "particles": decision.particles,
         "chosen_action": action_string(&decision.chosen_action),
+        "candidate_actions": decision.actions.len(),
+        "actions_with_invalid_particles": actions_with_invalid_particles,
+        "max_invalid_particles_any_action": max_invalid_particles,
         "valid_particles": s.valid_particles,
         "invalid_particles": s.invalid_particles,
         "mean_value": s.mean_value,
@@ -150,12 +165,14 @@ fn main() -> Result<(), String> {
                         let chosen_string = action_string(&decision.chosen_action);
                         let oracle_string = action_string(&action);
                         let chosen_stats = &decision.actions[decision.chosen_index];
+                        let any_invalid = decision.actions.iter().any(|s| s.invalid_particles > 0);
 
                         let agg = &mut aggregates[budget_idx];
                         agg.n += 1;
                         agg.oracle_representable += usize::from(oracle_representable);
                         agg.oracle_agree += usize::from(chosen_string == oracle_string);
                         agg.invalid_selected += usize::from(chosen_stats.invalid_particles > 0);
+                        agg.decisions_with_any_invalid_action += usize::from(any_invalid);
                         agg.decision_ms.push(elapsed_ms);
 
                         chosen.push(chosen_string);
@@ -208,6 +225,7 @@ fn main() -> Result<(), String> {
                 "oracle_representable_rate": if agg.n == 0 { 0.0 } else { agg.oracle_representable as f64 / agg.n as f64 },
                 "oracle_agreement_rate": if agg.n == 0 { 0.0 } else { agg.oracle_agree as f64 / agg.n as f64 },
                 "selected_with_invalid_particles": agg.invalid_selected,
+                "decisions_with_any_invalid_action": agg.decisions_with_any_invalid_action,
                 "decision_ms_mean": mean_ms,
                 "decision_ms_p50": percentile(&agg.decision_ms, 0.50),
                 "decision_ms_p95": percentile(&agg.decision_ms, 0.95),
