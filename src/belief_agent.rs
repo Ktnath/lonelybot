@@ -1,11 +1,11 @@
-//! Particle belief agent v1 for imperfect-information Klondike.
+//! Particle belief agent for imperfect-information Klondike.
 //!
-//! This is a root-sampling baseline: every public candidate action is evaluated
-//! on the same distribution of complete worlds sampled from `BeliefState`.
-//! Future rollout choices are made inside each determinized world, so this is
-//! intentionally *not* yet a full information-set tree search / POMCP agent.
-//! The purpose of v1 is to measure whether increasing the particle budget makes
-//! action values and recommendations converge under a rigorously public state.
+//! Phase 1.2 keeps the validated public BeliefState and improves the world
+//! evaluator. Values are bounded and multi-component so more particles reduce
+//! uncertainty about a meaningful progress signal instead of merely estimating
+//! a coarse deadlock-heavy score. Adaptive sampling can stop at 64 or 256
+//! particles when the leading action is statistically separated, otherwise it
+//! escalates to 2048.
 
 extern crate alloc;
 
@@ -16,6 +16,7 @@ use rand::Rng;
 
 use crate::belief::{BeliefError, BeliefState, PublicSnapshot};
 use crate::card::{Card, N_SUITS};
+use crate::deck::N_PILES;
 use crate::engine::SolitaireEngine;
 use crate::moves::Move;
 use crate::pruning::FullPruner;
@@ -27,22 +28,25 @@ pub struct ParticleBeliefConfig {
     /// Maximum number of optimized-engine moves simulated after the public root
     /// action inside each sampled world.
     pub rollout_depth: usize,
-    /// Small random component preventing the deterministic rollout policy from
-    /// getting trapped in one brittle heuristic path.
+    /// Optional random rollout exploration. Phase 1.2 defaults to zero so the
+    /// measured variance mostly reflects hidden-world uncertainty.
     pub rollout_exploration: f64,
-    /// Number of standard errors subtracted from mean rollout value.
+    /// Number of standard errors used for action confidence bounds.
     pub value_lcb_z: f64,
     /// Wilson lower-bound z value for empirical rollout wins.
     pub win_lcb_z: f64,
+    /// Minimum confidence gap needed for adaptive early stopping.
+    pub adaptive_min_gap: f64,
 }
 
 impl Default for ParticleBeliefConfig {
     fn default() -> Self {
         Self {
-            rollout_depth: 24,
-            rollout_exploration: 0.10,
-            value_lcb_z: 1.0,
+            rollout_depth: 32,
+            rollout_exploration: 0.0,
+            value_lcb_z: 1.28,
             win_lcb_z: 1.0,
+            adaptive_min_gap: 0.01,
         }
     }
 }
@@ -56,12 +60,19 @@ pub struct ParticleActionStats {
     pub mean_value: f64,
     pub stderr_value: f64,
     pub value_lcb: f64,
+    pub value_ucb: f64,
     pub win_rate: f64,
     pub win_lcb: f64,
     pub deadlock_rate: f64,
-    /// Cheap public hint: 1 when the action is expected to expose a new tableau
-    /// card (or advance stock while some initial slots remain unknown), else 0.
     pub information_gain_hint: u8,
+    // Mean normalized evaluator components, useful for calibration diagnostics.
+    pub mean_foundation_progress: f64,
+    pub mean_tableau_reveal_progress: f64,
+    pub mean_stock_clear_progress: f64,
+    pub mean_mobility: f64,
+    pub mean_empty_columns: f64,
+    pub mean_stock_accessibility: f64,
+    pub mean_reveal_options: f64,
 }
 
 #[derive(Debug)]
@@ -72,16 +83,37 @@ pub struct ParticleBeliefDecision {
     pub actions: Vec<ParticleActionStats>,
 }
 
+#[derive(Debug)]
+pub struct AdaptiveParticleDecision {
+    pub decision: ParticleBeliefDecision,
+    pub stopped_early: bool,
+    /// Lower confidence bound of the best action minus the strongest competing
+    /// upper confidence bound. Positive values mean statistical separation.
+    pub confidence_gap: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParticleBeliefError {
     Belief(BeliefError),
     NoPublicActions,
+    InvalidBudgets,
 }
 
 impl From<BeliefError> for ParticleBeliefError {
     fn from(value: BeliefError) -> Self {
         Self::Belief(value)
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct EvaluatorComponents {
+    foundation_progress: f64,
+    tableau_reveal_progress: f64,
+    stock_clear_progress: f64,
+    mobility: f64,
+    empty_columns: f64,
+    stock_accessibility: f64,
+    reveal_options: f64,
 }
 
 #[derive(Default)]
@@ -92,6 +124,7 @@ struct Accumulator {
     deadlocks: usize,
     sum: f64,
     sum_sq: f64,
+    components: EvaluatorComponents,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -99,6 +132,7 @@ struct RolloutOutcome {
     value: f64,
     won: bool,
     deadlock: bool,
+    components: EvaluatorComponents,
 }
 
 fn copy_action(action: &StandardMove) -> StandardMove {
@@ -121,6 +155,26 @@ fn sqrt_newton(x: f64) -> f64 {
     g
 }
 
+fn clamp01(x: f64) -> f64 {
+    if x < 0.0 {
+        0.0
+    } else if x > 1.0 {
+        1.0
+    } else {
+        x
+    }
+}
+
+fn clamp11(x: f64) -> f64 {
+    if x < -1.0 {
+        -1.0
+    } else if x > 1.0 {
+        1.0
+    } else {
+        x
+    }
+}
+
 fn wilson_lower(successes: usize, n: usize, z: f64) -> f64 {
     if n == 0 {
         return 0.0;
@@ -130,37 +184,89 @@ fn wilson_lower(successes: usize, n: usize, z: f64) -> f64 {
     let z2 = z * z;
     let denom = 1.0 + z2 / nf;
     let centre = p + z2 / (2.0 * nf);
-    let spread = z
-        * sqrt_newton((p * (1.0 - p) + z2 / (4.0 * nf)) / nf);
+    let spread = z * sqrt_newton((p * (1.0 - p) + z2 / (4.0 * nf)) / nf);
     (centre - spread) / denom
 }
 
-fn dense_state_value(engine: &SolitaireEngine<FullPruner>) -> RolloutOutcome {
+fn normalized_state_value(engine: &SolitaireEngine<FullPruner>) -> RolloutOutcome {
     if engine.state().is_win() {
         return RolloutOutcome {
-            value: 1000.0,
+            value: 1.0,
             won: true,
             deadlock: false,
+            components: EvaluatorComponents {
+                foundation_progress: 1.0,
+                tableau_reveal_progress: 1.0,
+                stock_clear_progress: 1.0,
+                mobility: 1.0,
+                empty_columns: 1.0,
+                stock_accessibility: 1.0,
+                reveal_options: 0.0,
+            },
         };
     }
 
     let legal = engine.list_moves_dom();
     let deadlock = legal.is_empty();
-    let foundation = f64::from(engine.state().get_stack().len());
-    let hidden = f64::from(engine.state().get_hidden().total_down_cards());
-    let deck = f64::from(engine.state().get_deck().len());
-    let mobility = legal.len() as f64;
+    let foundation = f64::from(engine.state().get_stack().len()) / 52.0;
+    let hidden_down = f64::from(engine.state().get_hidden().total_down_cards());
+    let tableau_reveal = clamp01((21.0 - hidden_down) / 21.0);
+    let deck_len = f64::from(engine.state().get_deck().len());
+    let stock_clear = clamp01((24.0 - deck_len) / 24.0);
+    let mobility = clamp01(legal.len() as f64 / 8.0);
 
-    let mut value = foundation * 18.0 - hidden * 7.0 - deck * 1.25 + mobility * 1.5;
-    if deadlock {
-        // A late deadlock with substantial progress is still better than an
-        // immediate deadlock, unlike the old uniform -250 terminal reward.
-        value -= 120.0;
+    let piles = engine.state().compute_visible_piles();
+    let mut empty = 0usize;
+    for i in 0..N_PILES {
+        if piles[usize::from(i)].is_empty() && engine.state().get_hidden().len(i) == 0 {
+            empty += 1;
+        }
     }
+    let empty_columns = empty as f64 / f64::from(N_PILES);
+
+    let stock_accessibility = if engine.state().get_deck().len() == 0 {
+        1.0
+    } else {
+        let accessible = engine.state().get_deck().compute_mask(false).count_ones() as f64;
+        clamp01(accessible / deck_len)
+    };
+
+    let reveal_count = legal.iter().filter(|m| matches!(m, Move::Reveal(_))).count();
+    let reveal_options = clamp01(reveal_count as f64 / 3.0);
+
+    let c = EvaluatorComponents {
+        foundation_progress: foundation,
+        tableau_reveal_progress: tableau_reveal,
+        stock_clear_progress: stock_clear,
+        mobility,
+        empty_columns,
+        stock_accessibility,
+        reveal_options,
+    };
+
+    // The weights sum to one. Foundation and tableau revelation dominate,
+    // while mobility/accessibility prevent a superficially advanced but brittle
+    // position from looking too attractive.
+    let progress01 = 0.30 * c.foundation_progress
+        + 0.27 * c.tableau_reveal_progress
+        + 0.12 * c.stock_clear_progress
+        + 0.10 * c.mobility
+        + 0.08 * c.empty_columns
+        + 0.08 * c.stock_accessibility
+        + 0.05 * c.reveal_options;
+
+    let mut value = 2.0 * progress01 - 1.0;
+    if deadlock {
+        // Bounded penalty: deadlock matters strongly, but cannot erase how far
+        // the world progressed or create the old flat-terminal pathology.
+        value -= 0.25;
+    }
+
     RolloutOutcome {
-        value,
+        value: clamp11(value),
         won: false,
         deadlock,
+        components: c,
     }
 }
 
@@ -168,16 +274,12 @@ fn cheap_rollout_score(engine: &SolitaireEngine<FullPruner>, mv: Move) -> i32 {
     match mv {
         Move::Reveal(card) => {
             let col = engine.state().get_hidden().find(card);
-            45 + i32::from(engine.state().get_hidden().len(col))
+            55 + 3 * i32::from(engine.state().get_hidden().len(col))
         }
-        Move::PileStack(card) => {
-            // Foundation progress is useful, while very early foundation moves
-            // get a small restraint because they can reduce tableau mobility.
-            26 + i32::from(card.rank()) / 3
-        }
-        Move::DeckStack(card) => 22 + i32::from(card.rank()) / 4,
-        Move::DeckPile(card) => 12 + if card.is_king() { 5 } else { 0 },
-        Move::StackPile(card) => 3 + if card.is_king() { 2 } else { 0 },
+        Move::PileStack(card) => 28 + i32::from(card.rank()) / 3,
+        Move::DeckStack(card) => 24 + i32::from(card.rank()) / 4,
+        Move::DeckPile(card) => 14 + if card.is_king() { 6 } else { 0 },
+        Move::StackPile(card) => 2 + if card.is_king() { 3 } else { 0 },
     }
 }
 
@@ -204,7 +306,9 @@ fn rollout<R: Rng>(
             break;
         }
 
-        let chosen = if rng.random::<f64>() < cfg.rollout_exploration {
+        let chosen = if cfg.rollout_exploration > 0.0
+            && rng.random::<f64>() < cfg.rollout_exploration
+        {
             legal[rng.random_range(0..legal.len())]
         } else {
             let mut best = legal[0];
@@ -224,7 +328,7 @@ fn rollout<R: Rng>(
         }
     }
 
-    Some(dense_state_value(&engine))
+    Some(normalized_state_value(&engine))
 }
 
 fn public_actions_from_snapshot(snapshot: &PublicSnapshot) -> Vec<StandardMove> {
@@ -287,17 +391,11 @@ fn public_actions_from_snapshot(snapshot: &PublicSnapshot) -> Vec<StandardMove> 
         let card = Card::new(count - 1, suit);
         for to in 0..snapshot.columns.len() {
             if card.go_after(snapshot.columns[to].visible.last().copied()) {
-                out.push(StandardMove::new(
-                    Pos::Stack(suit),
-                    Pos::Pile(to as u8),
-                    card,
-                ));
+                out.push(StandardMove::new(Pos::Stack(suit), Pos::Pile(to as u8), card));
             }
         }
     }
 
-    // The construction above can theoretically produce duplicates when public
-    // symmetries collapse. Keep a stable order while removing exact duplicates.
     let mut unique = Vec::new();
     for action in out {
         if !unique.iter().any(|x: &StandardMove| x == &action) {
@@ -320,9 +418,25 @@ fn information_gain_hint(belief: &BeliefState, action: &StandardMove) -> u8 {
     }
 }
 
-fn stats_from(acc: &Accumulator, action: &StandardMove, requested: usize, info: u8, cfg: &ParticleBeliefConfig) -> ParticleActionStats {
+fn add_components(sum: &mut EvaluatorComponents, c: EvaluatorComponents) {
+    sum.foundation_progress += c.foundation_progress;
+    sum.tableau_reveal_progress += c.tableau_reveal_progress;
+    sum.stock_clear_progress += c.stock_clear_progress;
+    sum.mobility += c.mobility;
+    sum.empty_columns += c.empty_columns;
+    sum.stock_accessibility += c.stock_accessibility;
+    sum.reveal_options += c.reveal_options;
+}
+
+fn stats_from(
+    acc: &Accumulator,
+    action: &StandardMove,
+    requested: usize,
+    info: u8,
+    cfg: &ParticleBeliefConfig,
+) -> ParticleActionStats {
     let n = acc.n;
-    let mean = if n == 0 { -1000.0 } else { acc.sum / n as f64 };
+    let mean = if n == 0 { -1.0 } else { acc.sum / n as f64 };
     let variance = if n <= 1 {
         0.0
     } else {
@@ -332,6 +446,7 @@ fn stats_from(acc: &Accumulator, action: &StandardMove, requested: usize, info: 
     let stderr = if n == 0 { 0.0 } else { sqrt_newton(variance / n as f64) };
     let win_rate = if n == 0 { 0.0 } else { acc.wins as f64 / n as f64 };
     let deadlock_rate = if n == 0 { 1.0 } else { acc.deadlocks as f64 / n as f64 };
+    let denom = if n == 0 { 1.0 } else { n as f64 };
 
     ParticleActionStats {
         action: copy_action(action),
@@ -341,10 +456,18 @@ fn stats_from(acc: &Accumulator, action: &StandardMove, requested: usize, info: 
         mean_value: mean,
         stderr_value: stderr,
         value_lcb: mean - cfg.value_lcb_z * stderr,
+        value_ucb: mean + cfg.value_lcb_z * stderr,
         win_rate,
         win_lcb: wilson_lower(acc.wins, n, cfg.win_lcb_z),
         deadlock_rate,
         information_gain_hint: info,
+        mean_foundation_progress: acc.components.foundation_progress / denom,
+        mean_tableau_reveal_progress: acc.components.tableau_reveal_progress / denom,
+        mean_stock_clear_progress: acc.components.stock_clear_progress / denom,
+        mean_mobility: acc.components.mobility / denom,
+        mean_empty_columns: acc.components.empty_columns / denom,
+        mean_stock_accessibility: acc.components.stock_accessibility / denom,
+        mean_reveal_options: acc.components.reveal_options / denom,
     }
 }
 
@@ -352,13 +475,93 @@ fn compare_stats(a: &ParticleActionStats, b: &ParticleActionStats) -> Ordering {
     let a_support = a.valid_particles as f64 / a.requested_particles.max(1) as f64;
     let b_support = b.valid_particles as f64 / b.requested_particles.max(1) as f64;
 
+    // Value confidence is primary. Win evidence is a tie-breaker rather than a
+    // lottery ticket, because shallow rollouts rarely reach terminal wins.
     a_support
         .partial_cmp(&b_support)
         .unwrap_or(Ordering::Equal)
-        .then_with(|| a.win_lcb.partial_cmp(&b.win_lcb).unwrap_or(Ordering::Equal))
         .then_with(|| a.value_lcb.partial_cmp(&b.value_lcb).unwrap_or(Ordering::Equal))
+        .then_with(|| a.win_lcb.partial_cmp(&b.win_lcb).unwrap_or(Ordering::Equal))
         .then_with(|| a.information_gain_hint.cmp(&b.information_gain_hint))
         .then_with(|| b.deadlock_rate.partial_cmp(&a.deadlock_rate).unwrap_or(Ordering::Equal))
+        .then_with(|| a.mean_value.partial_cmp(&b.mean_value).unwrap_or(Ordering::Equal))
+}
+
+fn build_decision(
+    belief: &BeliefState,
+    actions: &[StandardMove],
+    acc: &[Accumulator],
+    requested: usize,
+    cfg: &ParticleBeliefConfig,
+) -> ParticleBeliefDecision {
+    let stats: Vec<ParticleActionStats> = actions
+        .iter()
+        .zip(acc.iter())
+        .map(|(action, a)| {
+            stats_from(
+                a,
+                action,
+                requested,
+                information_gain_hint(belief, action),
+                cfg,
+            )
+        })
+        .collect();
+
+    let mut best_idx = 0usize;
+    for idx in 1..stats.len() {
+        if compare_stats(&stats[idx], &stats[best_idx]) == Ordering::Greater {
+            best_idx = idx;
+        }
+    }
+
+    ParticleBeliefDecision {
+        particles: requested,
+        chosen_action: copy_action(&stats[best_idx].action),
+        chosen_index: best_idx,
+        actions: stats,
+    }
+}
+
+fn confidence_gap(decision: &ParticleBeliefDecision) -> f64 {
+    if decision.actions.len() <= 1 {
+        return 2.0;
+    }
+    let best = &decision.actions[decision.chosen_index];
+    let mut strongest_other_ucb = -2.0;
+    for (idx, stats) in decision.actions.iter().enumerate() {
+        if idx != decision.chosen_index && stats.value_ucb > strongest_other_ucb {
+            strongest_other_ucb = stats.value_ucb;
+        }
+    }
+    best.value_lcb - strongest_other_ucb
+}
+
+fn sample_more<R: Rng>(
+    belief: &BeliefState,
+    actions: &[StandardMove],
+    acc: &mut [Accumulator],
+    additional: usize,
+    cfg: &ParticleBeliefConfig,
+    rng: &mut R,
+) -> Result<(), ParticleBeliefError> {
+    for _ in 0..additional {
+        let world = belief.sample_particle(rng)?;
+        for (idx, action) in actions.iter().enumerate() {
+            match rollout(&world, action, cfg, rng) {
+                Some(outcome) => {
+                    acc[idx].n += 1;
+                    acc[idx].sum += outcome.value;
+                    acc[idx].sum_sq += outcome.value * outcome.value;
+                    acc[idx].wins += usize::from(outcome.won);
+                    acc[idx].deadlocks += usize::from(outcome.deadlock);
+                    add_components(&mut acc[idx].components, outcome.components);
+                }
+                None => acc[idx].invalid += 1,
+            }
+        }
+    }
+    Ok(())
 }
 
 impl BeliefState {
@@ -369,10 +572,7 @@ impl BeliefState {
         public_actions_from_snapshot(self.snapshot())
     }
 
-    /// Evaluate all public root actions on `particles` independently sampled
-    /// worlds. Reusing the same RNG seed for different particle budgets makes
-    /// smaller budgets exact prefixes of larger ones, which is useful for
-    /// convergence experiments (64 -> 256 -> 2048).
+    /// Fixed-budget particle evaluation.
     pub fn particle_decision<R: Rng>(
         &self,
         particles: usize,
@@ -383,44 +583,49 @@ impl BeliefState {
         if actions.is_empty() {
             return Err(ParticleBeliefError::NoPublicActions);
         }
-
         let mut acc: Vec<Accumulator> = (0..actions.len()).map(|_| Accumulator::default()).collect();
+        sample_more(self, &actions, &mut acc, particles, cfg, rng)?;
+        Ok(build_decision(self, &actions, &acc, particles, cfg))
+    }
 
-        for _ in 0..particles {
-            let world = self.sample_particle(rng)?;
-            for (idx, action) in actions.iter().enumerate() {
-                match rollout(&world, action, cfg, rng) {
-                    Some(outcome) => {
-                        acc[idx].n += 1;
-                        acc[idx].sum += outcome.value;
-                        acc[idx].sum_sq += outcome.value * outcome.value;
-                        acc[idx].wins += usize::from(outcome.won);
-                        acc[idx].deadlocks += usize::from(outcome.deadlock);
-                    }
-                    None => acc[idx].invalid += 1,
-                }
+    /// Adaptive fixed-prefix evaluation. Budgets must be strictly increasing.
+    /// The same accumulators are extended rather than restarted, so 64 is an
+    /// exact prefix of 256, which is an exact prefix of 2048.
+    pub fn adaptive_particle_decision<R: Rng>(
+        &self,
+        budgets: &[usize],
+        cfg: &ParticleBeliefConfig,
+        rng: &mut R,
+    ) -> Result<AdaptiveParticleDecision, ParticleBeliefError> {
+        if budgets.is_empty()
+            || budgets[0] == 0
+            || budgets.windows(2).any(|w| w[1] <= w[0])
+        {
+            return Err(ParticleBeliefError::InvalidBudgets);
+        }
+        let actions = self.public_actions();
+        if actions.is_empty() {
+            return Err(ParticleBeliefError::NoPublicActions);
+        }
+        let mut acc: Vec<Accumulator> = (0..actions.len()).map(|_| Accumulator::default()).collect();
+        let mut previous = 0usize;
+
+        for (stage, &budget) in budgets.iter().enumerate() {
+            sample_more(self, &actions, &mut acc, budget - previous, cfg, rng)?;
+            previous = budget;
+            let decision = build_decision(self, &actions, &acc, budget, cfg);
+            let gap = confidence_gap(&decision);
+            let final_stage = stage + 1 == budgets.len();
+            if final_stage || gap >= cfg.adaptive_min_gap {
+                return Ok(AdaptiveParticleDecision {
+                    decision,
+                    stopped_early: !final_stage,
+                    confidence_gap: gap,
+                });
             }
         }
 
-        let stats: Vec<ParticleActionStats> = actions
-            .iter()
-            .zip(acc.iter())
-            .map(|(action, a)| stats_from(a, action, particles, information_gain_hint(self, action), cfg))
-            .collect();
-
-        let mut best_idx = 0usize;
-        for idx in 1..stats.len() {
-            if compare_stats(&stats[idx], &stats[best_idx]) == Ordering::Greater {
-                best_idx = idx;
-            }
-        }
-
-        Ok(ParticleBeliefDecision {
-            particles,
-            chosen_action: copy_action(&stats[best_idx].action),
-            chosen_index: best_idx,
-            actions: stats,
-        })
+        Err(ParticleBeliefError::InvalidBudgets)
     }
 }
 
@@ -448,5 +653,24 @@ mod tests {
             .actions
             .iter()
             .all(|s| s.valid_particles == 16 && s.invalid_particles == 0));
+        assert!(decision.actions.iter().all(|s| s.mean_value >= -1.0 && s.mean_value <= 1.0));
+    }
+
+    #[test]
+    fn adaptive_budget_is_valid_prefix_search() {
+        let cards = default_shuffle(17);
+        let game = ResearchGame::new(&cards, NonZeroU8::new(3).unwrap()).unwrap();
+        let mut rng = SmallRng::seed_from_u64(991);
+        let cfg = ParticleBeliefConfig {
+            rollout_depth: 4,
+            adaptive_min_gap: 10.0, // force the last budget
+            ..Default::default()
+        };
+        let result = game
+            .belief()
+            .adaptive_particle_decision(&[8, 16, 32], &cfg, &mut rng)
+            .unwrap();
+        assert_eq!(result.decision.particles, 32);
+        assert!(!result.stopped_early);
     }
 }
