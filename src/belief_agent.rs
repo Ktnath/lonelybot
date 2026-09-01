@@ -65,7 +65,6 @@ pub struct ParticleActionStats {
     pub win_lcb: f64,
     pub deadlock_rate: f64,
     pub information_gain_hint: u8,
-    // Mean normalized evaluator components, useful for calibration diagnostics.
     pub mean_foundation_progress: f64,
     pub mean_tableau_reveal_progress: f64,
     pub mean_stock_clear_progress: f64,
@@ -87,8 +86,6 @@ pub struct ParticleBeliefDecision {
 pub struct AdaptiveParticleDecision {
     pub decision: ParticleBeliefDecision,
     pub stopped_early: bool,
-    /// Lower confidence bound of the best action minus the strongest competing
-    /// upper confidence bound. Positive values mean statistical separation.
     pub confidence_gap: f64,
 }
 
@@ -140,8 +137,13 @@ fn copy_action(action: &StandardMove) -> StandardMove {
 }
 
 fn clone_standard(game: &StandardSolitaire) -> StandardSolitaire {
-    let compact: Solitaire = game.into();
-    StandardSolitaire::from(&compact)
+    // IMPORTANT: preserve exact public pile identities. Converting through the
+    // compact Solitaire representation is only equivalence-preserving: once
+    // columns become empty, symmetric piles may be reconstructed under different
+    // indices. That is fine for the perfect-information solver but invalid for
+    // public actions such as P5->P0, whose source/destination indices are part
+    // of the observation and must remain stable across every belief particle.
+    game.clone()
 }
 
 fn sqrt_newton(x: f64) -> f64 {
@@ -244,9 +246,6 @@ fn normalized_state_value(engine: &SolitaireEngine<FullPruner>) -> RolloutOutcom
         reveal_options,
     };
 
-    // The weights sum to one. Foundation and tableau revelation dominate,
-    // while mobility/accessibility prevent a superficially advanced but brittle
-    // position from looking too attractive.
     let progress01 = 0.30 * c.foundation_progress
         + 0.27 * c.tableau_reveal_progress
         + 0.12 * c.stock_clear_progress
@@ -257,8 +256,6 @@ fn normalized_state_value(engine: &SolitaireEngine<FullPruner>) -> RolloutOutcom
 
     let mut value = 2.0 * progress01 - 1.0;
     if deadlock {
-        // Bounded penalty: deadlock matters strongly, but cannot erase how far
-        // the world progressed or create the old flat-terminal pathology.
         value -= 0.25;
     }
 
@@ -294,6 +291,10 @@ fn rollout<R: Rng>(
         return None;
     }
 
+    // Once the public root action has been applied using the exact Standard
+    // layout, the future determinized rollout may safely use the compact solver
+    // representation: no subsequent decision is exposed as a public indexed
+    // action in this root-sampling baseline.
     let state: Solitaire = (&after).into();
     let mut engine: SolitaireEngine<FullPruner> = state.into();
 
@@ -475,8 +476,6 @@ fn compare_stats(a: &ParticleActionStats, b: &ParticleActionStats) -> Ordering {
     let a_support = a.valid_particles as f64 / a.requested_particles.max(1) as f64;
     let b_support = b.valid_particles as f64 / b.requested_particles.max(1) as f64;
 
-    // Value confidence is primary. Win evidence is a tie-breaker rather than a
-    // lottery ticket, because shallow rollouts rarely reach terminal wins.
     a_support
         .partial_cmp(&b_support)
         .unwrap_or(Ordering::Equal)
@@ -565,14 +564,11 @@ fn sample_more<R: Rng>(
 }
 
 impl BeliefState {
-    /// Enumerate standard Klondike actions whose legality depends only on the
-    /// current public snapshot. Hidden card identities are never consulted.
     #[must_use]
     pub fn public_actions(&self) -> Vec<StandardMove> {
         public_actions_from_snapshot(self.snapshot())
     }
 
-    /// Fixed-budget particle evaluation.
     pub fn particle_decision<R: Rng>(
         &self,
         particles: usize,
@@ -588,9 +584,6 @@ impl BeliefState {
         Ok(build_decision(self, &actions, &acc, particles, cfg))
     }
 
-    /// Adaptive fixed-prefix evaluation. Budgets must be strictly increasing.
-    /// The same accumulators are extended rather than restarted, so 64 is an
-    /// exact prefix of 256, which is an exact prefix of 2048.
     pub fn adaptive_particle_decision<R: Rng>(
         &self,
         budgets: &[usize],
@@ -636,7 +629,10 @@ mod tests {
     use rand::{rngs::SmallRng, SeedableRng};
 
     use crate::belief::ResearchGame;
+    use crate::convert::convert_moves;
     use crate::shuffler::default_shuffle;
+    use crate::solver::solve;
+    use crate::state::Solitaire;
 
     #[test]
     fn initial_particle_decision_has_full_public_support() {
@@ -653,7 +649,10 @@ mod tests {
             .actions
             .iter()
             .all(|s| s.valid_particles == 16 && s.invalid_particles == 0));
-        assert!(decision.actions.iter().all(|s| s.mean_value >= -1.0 && s.mean_value <= 1.0));
+        assert!(decision
+            .actions
+            .iter()
+            .all(|s| s.mean_value >= -1.0 && s.mean_value <= 1.0));
     }
 
     #[test]
@@ -663,7 +662,7 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(991);
         let cfg = ParticleBeliefConfig {
             rollout_depth: 4,
-            adaptive_min_gap: 10.0, // force the last budget
+            adaptive_min_gap: 10.0,
             ..Default::default()
         };
         let result = game
@@ -672,5 +671,48 @@ mod tests {
             .unwrap();
         assert_eq!(result.decision.particles, 32);
         assert!(!result.stopped_early);
+    }
+
+    #[test]
+    fn late_game_public_actions_keep_exact_column_identity() {
+        // Regression for Phase 1.2 smoke: seed 2, public step 43 previously
+        // produced one candidate that was invalid in every particle because
+        // StandardSolitaire was cloned through the compact symmetry-reduced
+        // representation, which can renumber empty columns.
+        let draw_step = NonZeroU8::new(3).unwrap();
+        let cards = default_shuffle(2);
+        let mut oracle = Solitaire::new(&cards, draw_step);
+        let (_, solution) = solve(&mut oracle);
+        let solution = solution.expect("seed 2 should be solvable");
+
+        let mut research = ResearchGame::new(&cards, draw_step).unwrap();
+        let mut shadow = StandardSolitaire::new(&cards, draw_step);
+        let mut public_step = 0usize;
+
+        for mv in solution {
+            let sequence = convert_moves(&mut shadow, &[mv]).unwrap();
+            for action in sequence {
+                if public_step == 43 {
+                    let mut rng = SmallRng::seed_from_u64(0xE1A2_0002_002B);
+                    let cfg = ParticleBeliefConfig {
+                        rollout_depth: 2,
+                        ..Default::default()
+                    };
+                    let decision = research
+                        .belief()
+                        .particle_decision(32, &cfg, &mut rng)
+                        .unwrap();
+                    assert!(decision.actions.len() >= 2);
+                    assert!(decision.actions.iter().all(|s| {
+                        s.valid_particles == 32 && s.invalid_particles == 0
+                    }));
+                    return;
+                }
+                research.step(action).unwrap();
+                public_step += 1;
+            }
+        }
+
+        panic!("seed 2 did not reach public step 43");
     }
 }
