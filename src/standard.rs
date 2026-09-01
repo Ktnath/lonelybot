@@ -17,7 +17,7 @@ pub enum Pos {
     Pile(u8),
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct StandardMove {
     pub from: Pos,
     pub to: Pos,
@@ -53,9 +53,6 @@ pub struct StandardSolitaire {
 
 pub type MoveResult<T> = core::result::Result<T, InvalidMove>;
 
-// Define our error types. These may be customized for our error handling cases.
-// Now we will be able to write our own errors, defer to an underlying error
-// implementation, or do something in between.
 #[derive(Debug, Clone, Copy)]
 pub struct InvalidMove;
 
@@ -66,9 +63,6 @@ pub fn split_at_card(cards: &[Card], card: Card) -> Option<(&[Card], &[Card])> {
 }
 
 impl StandardSolitaire {
-    /// # Panics
-    ///
-    /// This function should never panic. If it does then the implementation is buggy
     #[must_use]
     pub fn new(cards: &CardDeck, draw_step: NonZeroU8) -> Self {
         let mut hidden_piles: [HiddenVec; N_PILES as usize] = Default::default();
@@ -201,15 +195,6 @@ impl StandardSolitaire {
         }
     }
 
-    /// this will execute the move the move
-    /// this should never panic
-    /// if the move is illegal then it won't do anything (the game state will be preserved)
-    /// # Errors
-    ///
-    /// Will return `InvalidMove` when the input move `m` is not a legal move
-    /// # Panics
-    ///
-    /// This function will never panic unless the implementation is buggy
     pub fn do_move(&mut self, m: &StandardMove) -> MoveResult<()> {
         if !self.validate_move(m) {
             return Err(InvalidMove {});
@@ -248,7 +233,6 @@ impl StandardSolitaire {
             }
         }
 
-        // revealing
         if let Pos::Pile(from) = m.from {
             let from = usize::from(from);
             if self.piles[from].is_empty() {
