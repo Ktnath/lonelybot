@@ -22,4 +22,5 @@ pub mod partial;
 pub mod analysis;
 pub mod game_theory;
 pub mod belief;
+pub mod belief_agent;
 mod utils;
