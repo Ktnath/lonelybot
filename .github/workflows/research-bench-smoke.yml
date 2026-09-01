@@ -26,6 +26,7 @@ jobs:
           cargo build --release -p lonecli --bin research_trace
           cargo build --release -p lonecli --bin belief_validate
           cargo build --release -p lonecli --bin belief_bench
+          cargo build --release -p lonecli --bin belief_eval_bench
 
       - name: Python syntax checks
         run: |
